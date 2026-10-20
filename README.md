@@ -31,6 +31,22 @@ workspace isolation, not an operating-system sandbox.
 python MainProcess.py -r /path/to/project -m module-a --output /path/to/new-run
 ```
 
+Use `--workers N` to limit candidate analysis and dependency preprocessing. The
+default is `min(4, CPU count)`, capped again by the number of tasks; `--workers 1`
+runs these stages in the main process. Pruned candidates are not submitted to the
+analyzer pool. Each analyzer worker receives the graph once, and at most twice
+the worker count of tasks are queued. Results retain candidate/dependency order.
+
+Use `--analyzer-timeout SECONDS` to adjust the per-invocation timeout for Revapi,
+Soot, and BCEL (default: 300). Both settings are recorded in `run.json` and
+inherited by spawned workers. Increasing the timeout does not rerun an already
+successful cached analysis. Active tasks finish or hit their own timeout before
+an executor shuts down after a failure; queued tasks are cancelled.
+
+```shell
+python MainProcess.py -r /path/to/project -m module-a --workers 2 --analyzer-timeout 600
+```
+
 `--output` must be a new directory outside the input project. Without it, a
 temporary directory is created and its path is printed. The directory is kept
 on success, failure, and interruption for inspection:
@@ -64,7 +80,7 @@ disable the other reliability fixes or restore artifact-era cache behavior.
 Maven ordering follows the [Maven version comparison implementation](https://maven.apache.org/ref/3.6.2/maven-artifact/apidocs/org/apache/maven/artifact/versioning/ComparableVersion.html).
 
 Revapi, Soot, and BCEL must exit successfully before their output is used.
-Timeouts (300 seconds per analyzer invocation), missing artifacts, and nonzero
+Timeouts (300 seconds by default), missing artifacts, and nonzero
 exit codes abort analysis instead of being interpreted as compatibility. BCEL
 diagnostics on stderr also abort: its bundled tools may exit zero after a parsing
 error. Valid empty output is distinct from failure. Verified results are cached in
@@ -76,6 +92,15 @@ those analyses. The existing artifact-location and dependency-metadata databases
 are still required. Use separate working copies of datasets for independent
 experiments.
 
+JAR downloads are streamed into private temporary files, checked as ZIP archives
+including entry CRCs, and then atomically moved into the cache. Interrupted or
+invalid downloads never publish a partial JAR. Existing corrupt archives are
+downloaded again. SQLite operations now propagate database errors, close their
+connections on all exits, and commit related writes together or roll them back.
+A missing snapshot is an error rather than an implicitly created empty database.
+MongoDB reads preserve duplicate records: identical dependency lists are usable;
+conflicting lists raise an error and require explicit data repair.
+
 Run the offline regression suite after installing the requirements and a JDK:
 
 ```shell
@@ -84,7 +109,9 @@ python -m unittest discover -s tests -v
 
 The suite covers working-tree/stash preservation, analyzer failure and timeout
 handling, empty-result caching, POM scope and restoration, deterministic Maven
-ordering, import-safe CLI behavior, and failure exit codes. It does not require
+ordering, import-safe CLI behavior, failure exit codes, real spawn-process
+execution, serial/parallel equivalence, transaction rollback, and interrupted
+and concurrent downloads. It does not require
 MongoDB, downloaded experiment datasets, or network access and does not replace
 the full published experiment reproduction.
 
@@ -166,7 +193,8 @@ Execute the MainProcess.py:
 python MainProcess.py -h
 usage: MainProcess.py [-h] -r ROOT -m MODULE [-j JAR]
                       [-l LOCAL_DEP_JAR [LOCAL_DEP_JAR ...]] [--output OUTPUT]
-                      [--version-order {maven,legacy}]
+                      [--version-order {maven,legacy}] [--workers WORKERS]
+                      [--analyzer-timeout ANALYZER_TIMEOUT]
 
 options:
   -h, --help            show this help message and exit
@@ -179,6 +207,9 @@ options:
   --output OUTPUT       new output directory outside the input project
   --version-order {maven,legacy}
                         Maven ordering by default; legacy comparator for comparison
+  --workers WORKERS     maximum candidate/preprocessing workers; 1 runs serially
+  --analyzer-timeout ANALYZER_TIMEOUT
+                        timeout per Revapi/Soot/BCEL invocation in seconds
 ```
 
 the `ROOT` and `MODULE` parameters are necessary, while `JAR` and `LOCAL_DEP_JAR` parameters are optional.

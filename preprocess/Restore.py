@@ -4,9 +4,14 @@ import json
 import os
 import re
 import shutil
-import time
+from functools import partial
+from copy import deepcopy
+from runtime import worker_count
+from computation.parallel import bounded_map
 
 import requests
+import zipfile
+from preprocess.download import download_jar
 
 import constants
 from constants import JAR_DIR
@@ -39,11 +44,7 @@ class Restore:
 
     def create_folder(self, folder_path:str):
         """create a folder"""
-        # Check if the folder already exists
-        if os.path.exists(folder_path):
-            return
-        # Create an empty folder
-        os.makedirs(folder_path)
+        os.makedirs(folder_path, exist_ok=True)
 
     def restore(self, client_jar_path:str):
         """main method in this file,restore
@@ -83,42 +84,15 @@ class Restore:
         Returns:
             True means downloading success while False means downloading fail
         """
-        # debug
-        # print(f'dep {group_id}:{artifact_id}:{version}')
-
-        def handle_error_get(jar_url,  retries=3, backoff_factor=0.3):
-        # This inner function attempts to get the content from the jar_url with retries
-            for attempt in range(retries):
-                try:
-                    response = requests.get(jar_url, timeout=10)  # Set timeout to prevent hanging
-                    response.raise_for_status()  # Will raise an HTTPError for bad responses
-                    return response
-                except requests.RequestException as e:
-                    # print(f"Attempt {attempt + 1} failed for {artifact_id}-{version}.jar: {str(e)}")
-                    time.sleep(backoff_factor * (2 ** attempt))  # Exponential backoff
-                    if attempt == retries - 1:
-                        raise  # Re-raise the last exception if all retries fail
-
+        # Database failures are not download failures; let them propagate.
+        file_name = query_to_get_jar_location(group_id, artifact_id, version)
         jar_url = f"https://repo1.maven.org/maven2/{group_id.replace('.', '/')}/{artifact_id}/{version}/{artifact_id}-{version}.jar"
-        
-        # Call the function with retry logic
         try:
-            file_name = query_to_get_jar_location(group_id, artifact_id, version)
-            # prevent download repeatly
-            if os.path.exists(file_name):
-                # print(f"{artifact_id}-{version}.jar has been downloaded before.")
-                return True
-            response = handle_error_get(jar_url)
-            # Proceed if the download was successful
-            if response and response.status_code == 200:
-                with open(file_name, "wb") as jar_file:
-                    jar_file.write(response.content)
-                    print(f"{artifact_id}-{version}.jar downloaded successfully.")
-                    return True
-        except Exception as e:
+            download_jar(jar_url, file_name)
+            return True
+        except (requests.RequestException, OSError, zipfile.BadZipFile) as exc:
             if whether_log:
-                # print(f"Failed to download {artifact_id}-{version}.jar from central repository; Reason: {str(e)}")
-                log_debug(f"Failed to download {artifact_id}-{version}.jar from central repository; Reason: {str(e)}")
+                log_debug(f"Failed to download {group_id}:{artifact_id}:{version}: {exc}")
             return False
 
     def parse_tree_for_deps(self, dependency_tree:str, path_to_cloned_folder:str, relative_path_to_module:str, relative_path_to_client_jar:str):
@@ -282,15 +256,15 @@ class Restore:
         mappings = [{'GroupId':self.client_groupId, 'ArtifactId':self.client_artifactId,\
             'Original_Version':self.client_version, 'Best_Version':'', 'Type':'',\
                 'Depth':0, 'Count':0, 'Dependents':[]}] # add client at first
-        # traverse the valid_deps using processPool
-        num_workers = os.cpu_count()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = []
-            for valid_dep in valid_deps:
-                futures.append(executor.submit(self.process_a_valid_dep, valid_dep, omitted_deps))
-        for future in futures:
-            mappings.append(future.result())
-            
+        # Preserve dependency order while bounding active and queued tasks.
+        workers = worker_count(len(valid_deps))
+        process = partial(self.process_a_valid_dep, omitted_deps=omitted_deps)
+        if workers == 1:
+            mappings.extend(map(process, valid_deps))
+        elif valid_deps:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+                mappings.extend(bounded_map(executor, process, valid_deps, workers * 2))
+
         # add omitted deps which have no corresponding valid dep
         self.process_omitted_deps(valid_deps, omitted_deps, mappings)
 
@@ -561,7 +535,9 @@ class Restore:
             {GroupId, ArtifactId, Original_Version, Best_Version, Type, Depth, Dependents}\n
             Dependents is a list of dict {GroupId, ArtifactId, Version, Define_Version}
         """
-        valid_dep.pop('isoptional') # isoptional is not in need
+        # Process-pool tasks used to receive implicit copies. Keep the same
+        # isolation in serial mode, including the nested Dependents list.
+        valid_dep = deepcopy(valid_dep)
         # find the related omitted_deps with the valid_dep and restore the omitted dependents of the tree
         for omitted_dep in omitted_deps:
             # # debug

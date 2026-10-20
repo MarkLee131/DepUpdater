@@ -15,9 +15,18 @@ class Mongo:
 
     def connect(self):
         """connect to the mongodb"""
+        if self.client is not None:
+            return self
         self.client = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
         self.db = self.client[self.db_name]
         self.collection = self.db[self.collection_name]
+        return self
+
+    def __enter__(self):
+        return self.connect()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
     def insert_document(self, document):
         """insert one document
@@ -40,4 +49,8 @@ class Mongo:
 
     def close(self):
         """close the connection"""
-        self.client.close()
+        if self.client is not None:
+            self.client.close()
+        self.client = None
+        self.db = None
+        self.collection = None

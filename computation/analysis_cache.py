@@ -7,15 +7,18 @@ from pathlib import Path
 import sqlite3
 
 from computation.execution import run_checked
+from runtime import analyzer_timeout
 
 
-def run_cached(command, *, files, namespace, timeout=300, reject_stderr=False):
+def run_cached(command, *, files, namespace, timeout=None, reject_stderr=False):
     """Cache only exit-code-zero executions, including genuinely empty output.
 
     Hash input artifacts and analyzer binaries so changing a local JAR or an
     analyzer cannot silently reuse a previous result. Never read legacy tables:
     those tables do not distinguish execution failures from empty results.
     """
+    if timeout is None:
+        timeout = analyzer_timeout()
     fingerprints = []
     for file in files:
         digest = hashlib.sha256()

@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 import tempfile
 import traceback
+import math
+from runtime import default_workers
 
 
 def expand_resolve_abspath(path):
@@ -22,7 +24,25 @@ def build_parser():
     parser.add_argument('--output', help='new output directory outside the input project')
     parser.add_argument('--version-order', choices=['maven', 'legacy'], default='maven',
                         help='Maven order (default), or the original artifact comparator for comparison')
+    parser.add_argument('--workers', type=positive_int, default=default_workers(),
+                        help='maximum analysis workers (default: at most 4); 1 runs serially')
+    parser.add_argument('--analyzer-timeout', type=positive_seconds, default=300.0,
+                        help='timeout in seconds per analyzer invocation (default: 300)')
     return parser
+
+
+def positive_int(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError('must be a positive integer')
+    return number
+
+
+def positive_seconds(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError('must be finite and positive')
+    return number
 
 
 def _relative_path(parser, root, value, label, *, file=False):
@@ -65,12 +85,15 @@ def main(argv=None):
             output.mkdir(parents=True)
         os.environ['DEPUPDATER_RUN_DIR'] = str(output / 'analysis')
         os.environ['DEPUPDATER_VERSION_ORDER'] = args.version_order
+        os.environ['DEPUPDATER_WORKERS'] = str(args.workers)
+        os.environ['DEPUPDATER_ANALYZER_TIMEOUT'] = str(args.analyzer_timeout)
         import constants
         constants.configure_run_paths(output / 'analysis')
         from preprocess.workspace import copy_project
         workspace = copy_project(source, output / 'workspace' / source.name)
         metadata = {'source': str(source), 'workspace': str(workspace),
                     'module': args.module, 'version_order': args.version_order,
+                    'workers': args.workers, 'analyzer_timeout': args.analyzer_timeout,
                     'status': 'running'}
         (output / 'run.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
         print(f'Workspace: {workspace}', flush=True)

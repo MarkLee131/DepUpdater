@@ -15,6 +15,21 @@ from database.query import query_to_get_jar_location, query_dependencies_from_mo
 from preprocess.Restore import Restore
 from update.updateDB import populate_dep
 from logger.logger import log_debug
+from runtime import worker_count
+from computation.parallel import bounded_map
+
+
+def _initialize_checker(computation, client_gav):
+    # Transfer the dependency graph once per worker, rather than per candidate.
+    global _worker_computation, _worker_client_gav
+    _worker_computation = computation
+    _worker_client_gav = client_gav
+
+
+def _check_candidate(version):
+    return _worker_computation.version_compatibility_checker(version, _worker_client_gav)
+
+
 class Computation:
     def __init__(self, cur_node:dict, graph:list, repo_name:str, relative_path_to_module:str,\
             local_dep_jar:list):
@@ -171,47 +186,28 @@ class Computation:
         # get gav of client
         client_gav = self.get_client_gav()
 
-        # compute the newest compatible version
-        # use process pool to compute the versions in all_versions in parallel
-        # I'll compute all versions, finally choose the newest compatible version
-        
-        # num_workers = os.cpu_count() // 2
-        # num_workers = 2 # memory is limited, so use 2 workers for testing
-        # num_workers = 3 # memory is limited, so use 3 workers for testing
-        num_workers = 60
-
-        # # clear breaking_reason of all versions except the version not following software debloating
-        # for version_dict in self.cur_node['Versions']:
-        #     if version_dict['breaking_reason'] != ['software debloating']:
-        #         version_dict['breaking_reason'] = []
-
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-            # initializing the progress bar
-            pbar = tqdm(total=len(all_versions), desc=f"analyze versions of {self.cur_node['GroupId']}:{self.cur_node['ArtifactId']}", position=0, leave=True)
-            # submit the tasks to the executor
-            tasks = {executor.submit(self.version_compatibility_checker, version, client_gav): version for version in all_versions}
-
-            for breaking_reason in concurrent.futures.as_completed(tasks):
-                # update the breaking_reason of the version in self.cur_node['Versions']
-                for version_dict in self.cur_node['Versions']:
-                    if version_dict['version'] == breaking_reason.result()['version']:
-                        # print(f'update breaking_reason of {self.cur_node["GroupId"]}:{self.cur_node["ArtifactId"]}:{version_dict["version"]}')
-                        version_dict['breaking_reason'] = breaking_reason.result()['breaking_reason']
-                        break
-                # update the progress bar
-                pbar.update(1)
-        pbar.close()
-        
-        # # serial to debug
-        # pbar = tqdm(total=len(all_versions), desc=f"analyze versions of {self.cur_node['GroupId']}:{self.cur_node['ArtifactId']}", position=0, leave=True)
-        # for version in all_versions:
-        #     breaking_reason = self.version_compatibility_checker(version, client_gav)
-        #     for version_dict in self.cur_node['Versions']:
-        #         if version_dict['version'] == breaking_reason['version']:
-        #             version_dict['breaking_reason'] = breaking_reason['breaking_reason']
-        #             break
-        #     pbar.update(1)
-        # pbar.close()
+        records = {record['version']: record for record in self.cur_node['Versions']}
+        candidates = [version for version in all_versions
+                      if records[version]['breaking_reason'] != ['software debloating']]
+        if not candidates:
+            return
+        workers = worker_count(len(candidates))
+        with tqdm(total=len(candidates),
+                  desc=f"analyze versions of {self.cur_node['GroupId']}:{self.cur_node['ArtifactId']}",
+                  position=0, leave=True) as progress:
+            if workers == 1:
+                for version in candidates:
+                    result = self.version_compatibility_checker(version, client_gav)
+                    records[result['version']]['breaking_reason'] = result['breaking_reason']
+                    progress.update(1)
+            else:
+                with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=workers, initializer=_initialize_checker,
+                    initargs=(self, client_gav),
+                ) as executor:
+                    for result in bounded_map(executor, _check_candidate, candidates, workers * 2):
+                        records[result['version']]['breaking_reason'] = result['breaking_reason']
+                        progress.update(1)
 
     def graph_to_set(self):
         """transform the node in self.graph into g:a set"""
@@ -315,7 +311,7 @@ class Computation:
         # find the dict in self.cur_node['Versions'] with the version
         for version_dict in self.cur_node['Versions']:
             if version_dict['version'] == version:
-                ret_dict = version_dict
+                ret_dict = dict(version_dict, breaking_reason=list(version_dict['breaking_reason']))
                 break
 
         if ret_dict['breaking_reason'] == ['software debloating']:
