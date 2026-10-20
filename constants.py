@@ -50,11 +50,11 @@ import os
 MainProcess_pwd = os.path.dirname(os.path.abspath(__file__))
 
 # path to data/
-DATA_DIR = os.path.join(MainProcess_pwd, 'data/')
+DATA_DIR = os.environ.get('DEPUPDATER_RUN_DIR', os.path.join(MainProcess_pwd, 'data/'))
 # path to data/tree/
 TREE_DIR = os.path.join(DATA_DIR, 'tree/')
 # path to data/jar/
-JAR_DIR = os.path.join(DATA_DIR, 'jar/')
+JAR_DIR = os.path.join(MainProcess_pwd, 'data/jar/')
 # path to data/result/
 RET_DIR = os.path.join(DATA_DIR, 'result/')
 
@@ -88,9 +88,9 @@ JAPICMP_PATH = os.path.join(MainProcess_pwd, 'utils', 'japicmp-0.18.3-jar-with-d
 M2_PATH = os.path.expanduser('~') + '/.m2/repository/'
 
 # path to the log file. set in process
-LOG_PATH = None
+LOG_PATH = os.environ.get('DEPUPDATER_LOG_PATH')
 # path to the soot empty cases file. set in process
-SOOT_EMPTY_CASES_CSV = None
+SOOT_EMPTY_CASES_CSV = os.environ.get('DEPUPDATER_SOOT_EMPTY_CSV')
 # path to the csv file that stores the download error jar
 DOWNLOAD_ERROR_CSV = os.path.join(JAR_DIR, 'download_fail_jar.csv')
 
@@ -98,11 +98,27 @@ def set_log_path(path:str):
     """lazy-initialize LOG_PATH"""
     global LOG_PATH
     LOG_PATH = path
+    os.environ['DEPUPDATER_LOG_PATH'] = path
 
 def set_soot_empty_cases_csv(path:str):
     """lazy-initialize SOOT_EMPTY_CASES_CSV"""
     global SOOT_EMPTY_CASES_CSV
     SOOT_EMPTY_CASES_CSV = path
+    os.environ['DEPUPDATER_SOOT_EMPTY_CSV'] = path
+
+def configure_run_paths(directory):
+    """Set per-run output paths; analyzers spawned later inherit the same root."""
+    global DATA_DIR, TREE_DIR, RET_DIR, VERSIONS_DIR, TQDM_LOG_PATH
+    global REACHABLE_API_DIR, VALIDATION_LOG_DIR, POM_PATH
+    DATA_DIR = os.path.abspath(directory)
+    os.environ['DEPUPDATER_RUN_DIR'] = DATA_DIR
+    TREE_DIR = os.path.join(DATA_DIR, 'tree')
+    RET_DIR = os.path.join(DATA_DIR, 'result')
+    VERSIONS_DIR = os.path.join(DATA_DIR, 'extended_rq3_result')
+    TQDM_LOG_PATH = os.path.join(DATA_DIR, 'tqdm_log')
+    REACHABLE_API_DIR = os.path.join(DATA_DIR, 'reachableApi')
+    VALIDATION_LOG_DIR = os.path.join(DATA_DIR, 'validation_log')
+    POM_PATH = os.path.join(DATA_DIR, 'pom')
 
 def get_log_path():
     """get LOG_PATH after setting"""

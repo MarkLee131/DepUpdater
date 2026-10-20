@@ -1,10 +1,8 @@
 """all operation on Revapi tool"""
-import os
 import re
-import subprocess
+from pathlib import Path
+from computation.analysis_cache import run_cached
 from constants import REVAPI_SH_PATH
-from database.query import query_revapi_report, store_revapi_report,\
-    query_revapi_bc_api, store_revapi_bc_api
 class Revapi:
     """Revapi tool class"""
 
@@ -33,44 +31,37 @@ class Revapi:
             4 dict: binary_bc_method, binary_bc_type, source_bc_method, source_bc_type
             each dict is a bc api -> bc record mapping
         """
-        binary_bc_method, binary_bc_type, source_bc_method, source_bc_type = query_revapi_bc_api(groupId, artifactId, old_version, new_version)
-        if binary_bc_method is not None \
-            and binary_bc_type is not None \
-                and source_bc_method is not None \
-                    and source_bc_type is not None:
-            # bc api exists in the database
-            # print(f"bc api of {groupId}:{artifactId}:{old_version} -> {groupId}:{artifactId}:{new_version} exists in the database")
-            return binary_bc_method, binary_bc_type, source_bc_method, source_bc_type
-        # bc api not exists in the database
+        # Legacy cached reports have no execution status and cannot establish success.
+        self.binary_bc_records.clear()
+        self.source_bc_records.clear()
+        self.binary_bc_method.clear()
+        self.binary_bc_type.clear()
+        self.source_bc_method.clear()
+        self.source_bc_type.clear()
         report = self.compare(groupId, artifactId, old_version, new_version)
         self.extract_bc_records(report)
         for record in self.binary_bc_records:
             self.extract_bc_api(record, 'binary')
         for record in self.source_bc_records:
             self.extract_bc_api(record, 'source')
-        store_revapi_bc_api(groupId, artifactId, old_version, new_version, self.binary_bc_method, self.binary_bc_type, self.source_bc_method, self.source_bc_type)
         return self.binary_bc_method, self.binary_bc_type, self.source_bc_method, self.source_bc_type
 
     def compare(self, groupId:str, artifactId:str, old_version:str, new_version:str):
         """get the compatibility report between two jar files\n
-        query sqlite first. if not exist, run revapi to get and store the report in sqlite
+        Reuse only the checked-execution cache; legacy reports have no status.
         """
-        # print(f'Comparing {groupId}:{artifactId}:{old_version} -> {groupId}:{artifactId}:{new_version}')
-        report = query_revapi_report(groupId, artifactId, old_version, new_version)
-        if report:
-            # report exists in the database
-            # print('Report exists in the database')
-            return report
-        report = self.run()
-        # store report in sqlite
-        store_revapi_report(groupId, artifactId, old_version, new_version, report)
-        return report
+        return self.run()
 
     def run(self):
-        """run revapi to get the compatibility report"""
-        command = f'''{REVAPI_SH_PATH} --extensions=org.revapi:revapi-java:0.28.1,org.revapi:revapi-reporter-text:0.15.0 --old={self.old_jar} --new={self.new_jar} -D revapi.reporter.text.minSeverity=BREAKING'''
-        result = subprocess.run(command, shell=True, text=True, capture_output=True)
-        return result.stdout
+        """Return a verified report, or raise on failure/timeout (never cache it)."""
+        command = [REVAPI_SH_PATH,
+                   '--extensions=org.revapi:revapi-java:0.28.1,org.revapi:revapi-reporter-text:0.15.0',
+                   f'--old={self.old_jar}', f'--new={self.new_jar}',
+                   '-D', 'revapi.reporter.text.minSeverity=BREAKING']
+        tool_dir = Path(REVAPI_SH_PATH).parent
+        binaries = sorted(tool_dir.rglob('*.jar'))
+        return run_cached(command, files=[self.old_jar, self.new_jar, REVAPI_SH_PATH, *binaries],
+                          namespace='revapi-checked-v1')
 
     def extract_bc_records(self, report:str):
         """extract the binary and source breaking change records from the report

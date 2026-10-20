@@ -10,6 +10,10 @@ file_handler = None
 
 def initialize_logger():
     global file_handler
+    if file_handler is not None and file_handler.baseFilename != get_log_path():
+        logger.removeHandler(file_handler)
+        file_handler.close()
+        file_handler = None
     if file_handler is None:
         # create file handler which logs debug messages
         file_handler = logging.FileHandler(get_log_path())

@@ -1,11 +1,11 @@
 """use soot to get the CG/type_DG of a jar file"""
 import os
-import subprocess
+from computation.analysis_cache import run_cached
+from computation.execution import AnalysisError
 import csv
+import zipfile
 
-from database.query import query_to_get_jar_location, query_call_graph,\
-    store_call_graph, query_type_dependency_graph, store_type_dependency_graph,\
-        query_methods, store_methods, query_types, store_types
+from database.query import query_to_get_jar_location
 from constants import SOOTCG_PATH,SOOT_TYPE_DG_PATH,get_soot_empty_cases_csv,\
     BCEL_METHOD_PATH,BCEL_TYPE_PATH
 from preprocess.Restore import Restore
@@ -18,121 +18,40 @@ class Api:
         self.jar_path = self.get_jar()
         self.can_download = Restore.get_dep_jar(self.groupId, self.artifactId, self.version)
 
+    def _analyze(self, tool, kind):
+        if not self.can_download:
+            raise AnalysisError(f'JAR unavailable: {self.groupId}:{self.artifactId}:{self.version}')
+        if not zipfile.is_zipfile(self.jar_path):
+            raise AnalysisError(f'Invalid JAR: {self.jar_path}')
+        return run_cached(['java', '-jar', tool, self.jar_path],
+                          files=[tool, self.jar_path], namespace=f'{kind}-checked-v1',
+                          reject_stderr=kind in ('methods', 'types'))
+
     def get_cg(self):
-        """get the call graph of the jar file
-        Returns:
-            cg (str): call graph in string format
-        """
-        # query the call graph from sqlite
-        cg = query_call_graph(self.groupId, self.artifactId, self.version)
-        if cg is not None:
-            # call graph exists in the database
-            # if cg == '':
-            #     self.store_empty_cases('cg')
-            # return cg
-            if cg != '':
-                # if cg is empty, then recompute it
-                return cg
-            
-        # call graph does not exist in the database, so use sootCG to get the call graph
-        # jar_path = self.get_jar()
-        # can_download = Restore.get_dep_jar(self.groupId, self.artifactId, self.version)
-        if self.can_download:
-            # run sootCG
-            command = f"java -jar {SOOTCG_PATH} {self.jar_path}"
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            cg = result.stdout
-            store_call_graph(self.groupId, self.artifactId, self.version, cg)
-            if not cg:
-                # store the empty cases
-                # cg is '', so store the empty cases
-                self.store_empty_cases('cg')
-            return cg
-        else:
-            # download failed, store the empty cases
+        """Return a successfully computed graph, which may be empty."""
+        graph = self._analyze(SOOTCG_PATH, 'call-graph')
+        if not graph:
             self.store_empty_cases('cg')
-            return ''
+        return graph
 
     def get_type_dg(self):
-        """get the type dependency graph of the jar file"""
-        # jar_path = self.get_jar()
-        # can_download = Restore.get_dep_jar(self.groupId, self.artifactId, self.version)
-        if self.can_download:
-            # query the type dependency graph from sqlite
-            type_dg = query_type_dependency_graph(self.groupId, self.artifactId, self.version)
-            if type_dg is not None:
-                # type dependency graph exists in the database
-                # if type_dg == '':
-                #     self.store_empty_cases('type_dg')
-                # return type_dg
-                if type_dg != '':
-                    # if type_dg is empty, then recompute it
-                    return type_dg
-            # run soot_Type_DG
-            command = f"java -jar {SOOT_TYPE_DG_PATH} {self.jar_path}"
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            type_dg = result.stdout
-            store_type_dependency_graph(self.groupId, self.artifactId, self.version, type_dg)
-            if not type_dg:
-                # store the empty cases
-                # type_dg is '', so store the empty cases
-                self.store_empty_cases('type_dg')
-            return type_dg
-        else:
-            # download failed, store the empty cases
+        """Return a successfully computed type graph, which may be empty."""
+        graph = self._analyze(SOOT_TYPE_DG_PATH, 'type-graph')
+        if not graph:
             self.store_empty_cases('type_dg')
-            return ''
-    
+        return graph
+
     def get_methods(self):
-        """get the methods in the jar file by BCELgetMethod
-        Returns:
-            all_methods (set): all methods in the jar file
-            flag (bool): True if the methods are empty, False otherwise
+        """Return (methods, success). Empty successful output is (set(), True).
+
+        Missing JARs, execution failures and timeouts raise AnalysisError;
+        they must not silently trigger the semantic-versioning fallback.
         """
-        # query the methods from sqlite
-        if self.can_download:
-            # query the methods from sqlite
-            methods = query_methods(self.groupId, self.artifactId, self.version)
-            if methods is not None:
-                # if methods == '':
-                #     return set(), False
-                # return self.split_text(methods), True
-                if methods != '':
-                    return self.split_text(methods), True
-            # if methods is empty, then recompute it
-            # run BCELgetMethod
-            command = f"java -jar {BCEL_METHOD_PATH} {self.jar_path}"
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            methods = result.stdout
-            store_methods(self.groupId, self.artifactId, self.version, methods)
-            if not methods:
-                return set(), False
-            return self.split_text(methods), True
-        else:
-            return set(), False
+        return self.split_text(self._analyze(BCEL_METHOD_PATH, 'methods')), True
 
     def get_types(self):
-        """get the types in the jar file by BCELgetType"""
-        if self.can_download:
-            # query the types from sqlite
-            types = query_types(self.groupId, self.artifactId, self.version)
-            if types is not None:
-                # if types == '':
-                #     return set(), False
-                # return self.split_text(types), True
-                if type != '':
-                    return self.split_text(types), True
-            # if type is empty, then recompute it
-            # run BCELgetType
-            command = f"java -jar {BCEL_TYPE_PATH} {self.jar_path}"
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            types = result.stdout
-            store_types(self.groupId, self.artifactId, self.version, types)
-            if not types:
-                return set(), False
-            return self.split_text(types), True
-        else:
-            return set(), False
+        """Return (types, success); failures raise instead of looking empty."""
+        return self.split_text(self._analyze(BCEL_TYPE_PATH, 'types')), True
 
     @staticmethod
     def split_text(text:str):
@@ -149,6 +68,8 @@ class Api:
             type (str): 'cg' or 'type_dg'
         """
         csv_path = get_soot_empty_cases_csv()
+        if csv_path is None:
+            return
         header_written = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
         with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)

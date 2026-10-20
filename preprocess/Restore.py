@@ -8,7 +8,8 @@ import time
 
 import requests
 
-from constants import JAR_DIR, RET_DIR, TREE_DIR
+import constants
+from constants import JAR_DIR
 from database.query import query_to_get_jar_location
 from computation.versions import get_candidate_versions
 from logger.logger import log_debug
@@ -33,7 +34,7 @@ class Restore:
         self.client_version = None
         self.local_module_inform = local_module_inform
         self.path_to_local_dep_jar = local_dep_jar
-        self.create_folder(TREE_DIR)
+        self.create_folder(constants.TREE_DIR)
         self.create_folder(JAR_DIR)
 
     def create_folder(self, folder_path:str):
@@ -51,7 +52,7 @@ class Restore:
             
         """
         # create TREE folder
-        self.create_folder(TREE_DIR)
+        self.create_folder(constants.TREE_DIR)
         # parse
         with open(self.tree_path, 'r', encoding='utf-8') as tree:
             dependency_tree = tree.read()
@@ -303,9 +304,9 @@ class Restore:
         # stored in data/result/{repo_name}/{relative_path_to_module}/version.json
         repo_name = os.path.basename(self.path_to_cloned_folder)
         if self.relative_path_to_module == '.':
-            json_folder = os.path.join(RET_DIR, f'{repo_name}', '_')
+            json_folder = os.path.join(constants.RET_DIR, f'{repo_name}', '_')
         else:
-            json_folder = os.path.join(RET_DIR, f'{repo_name}', f'{self.relative_path_to_module}')
+            json_folder = os.path.join(constants.RET_DIR, f'{repo_name}', f'{self.relative_path_to_module}')
         self.create_folder(json_folder)
         json_path = os.path.join(json_folder, 'version.json')
         with open(json_path, 'w', encoding='utf-8') as json_file:

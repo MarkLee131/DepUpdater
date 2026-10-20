@@ -11,6 +11,83 @@ To this end, we propose DepUpdater, which ensures that upgrades minimize technic
 
 ![image](img/overview.png)
 
+## Reliability branch
+
+Reliability fixes are developed on `fix/reliability`. The `artifact` branch at
+`163cf41` is the unchanged starting point for this work. Use the original
+artifact code, its database snapshots, and its experiment configuration when
+reproducing the published experiments. Results from this branch are not
+automatically equivalent: corrected analysis failures and version ordering can
+change recommendations and technical-lag counts.
+
+The CLI now analyzes a separate copy of the **current working tree**, including
+uncommitted and untracked files. It does not stash, reset, or edit the input
+project. Git metadata in the copy is independent of the original repository.
+Project symlinks are materialized as copies. Build configurations that refer to
+absolute external paths still require project-specific configuration; this is
+workspace isolation, not an operating-system sandbox.
+
+```shell
+python MainProcess.py -r /path/to/project -m module-a --output /path/to/new-run
+```
+
+`--output` must be a new directory outside the input project. Without it, a
+temporary directory is created and its path is printed. The directory is kept
+on success, failure, and interruption for inspection:
+
+```text
+new-run/
+├── run.json                 # source, workspace, ordering policy, status, exit code
+├── error.txt                # traceback if an exception occurs
+├── workspace/<project>/     # independent project copy and build outputs
+└── analysis/                # dependency graphs, logs and lag.csv
+```
+
+After traversal, the selected module's `pom.xml` in the workspace is restored.
+`_original_pom.xml` contains its original bytes; `_backed_up_pom.xml` contains
+the candidate POM. On failure this candidate may be incomplete or unvalidated;
+check `run.json` and the build/test logs before using it. The input POM stays
+unchanged. Interrupted runs return `130`, invalid CLI arguments return `2`, and
+analysis/build/test failures return `1`; successful runs return `0`.
+
+Version ordering defaults to Maven's `ComparableVersion`, using the pinned
+`maven-artifact-3.6.2.jar` already bundled with Revapi and the source helper
+`utils/SortVersions.java`. The JDK runs this helper directly; no extra download
+is needed. Maven-equivalent spellings use lexical order as a deterministic tie
+breaker. Publication timestamps do not influence this order. Technical lag
+continues to count positions in the filtered candidate-version list, so changing
+that list's ordering can change the metric.
+
+`--version-order legacy` preserves the original SemVer/date comparator **for
+comparison only**, including its known inconsistent ordering. It does not
+disable the other reliability fixes or restore artifact-era cache behavior.
+Maven ordering follows the [Maven version comparison implementation](https://maven.apache.org/ref/3.6.2/maven-artifact/apidocs/org/apache/maven/artifact/versioning/ComparableVersion.html).
+
+Revapi, Soot, and BCEL must exit successfully before their output is used.
+Timeouts (300 seconds per analyzer invocation), missing artifacts, and nonzero
+exit codes abort analysis instead of being interpreted as compatibility. BCEL
+diagnostics on stderr also abort: its bundled tools may exit zero after a parsing
+error. Valid empty output is distinct from failure. Verified results are cached in
+`data/verified_analysis.sqlite`, keyed by command, analyzer namespace, and input
+and tool content hashes. Set `DEPUPDATER_ANALYSIS_CACHE` to use another path.
+Legacy analysis entries in `reusable_data.sqlite` are not trusted because they
+have no execution status; the first run on this branch will therefore recompute
+those analyses. The existing artifact-location and dependency-metadata databases
+are still required. Use separate working copies of datasets for independent
+experiments.
+
+Run the offline regression suite after installing the requirements and a JDK:
+
+```shell
+python -m unittest discover -s tests -v
+```
+
+The suite covers working-tree/stash preservation, analyzer failure and timeout
+handling, empty-result caching, POM scope and restoration, deterministic Maven
+ordering, import-safe CLI behavior, and failure exit codes. It does not require
+MongoDB, downloaded experiment datasets, or network access and does not replace
+the full published experiment reproduction.
+
 ## Usage
 
 ### Requirements
@@ -51,7 +128,7 @@ pip install -r requirements.txt
 * Activate a MongoDB docker container named `maven_mongodb`.
 
 ```shell
-docker-compose -f docker-compose.yml up -d
+docker-compose -f docker-compose-mongodb.yml up -d
 ```
 
 * Restore two collections of the MongoDB :
@@ -87,7 +164,9 @@ Execute the MainProcess.py:
 
 ```
 python MainProcess.py -h
-usage: MainProcess.py [-h] [-r ROOT] [-m MODULE] [-j JAR] [-l LOCAL_DEP_JAR [LOCAL_DEP_JAR ...]]
+usage: MainProcess.py [-h] -r ROOT -m MODULE [-j JAR]
+                      [-l LOCAL_DEP_JAR [LOCAL_DEP_JAR ...]] [--output OUTPUT]
+                      [--version-order {maven,legacy}]
 
 options:
   -h, --help            show this help message and exit
@@ -97,6 +176,9 @@ options:
   -j JAR, --jar JAR     the relative path to the client jar
   -l LOCAL_DEP_JAR [LOCAL_DEP_JAR ...], --local_dep_jar LOCAL_DEP_JAR [LOCAL_DEP_JAR ...]
                         the relative paths to the local module jar depended by client
+  --output OUTPUT       new output directory outside the input project
+  --version-order {maven,legacy}
+                        Maven ordering by default; legacy comparator for comparison
 ```
 
 the `ROOT` and `MODULE` parameters are necessary, while `JAR` and `LOCAL_DEP_JAR` parameters are optional.
@@ -187,6 +269,3 @@ Stay informed about our ongoing efforts! 🤖
 > [!IMPORTANT]
 >
 > Feel free to share your suggestions for this process by opening issues or PRs. :)
-
-
-

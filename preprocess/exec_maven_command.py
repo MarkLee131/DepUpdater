@@ -1,75 +1,45 @@
-"""exectute the mvn command like 'mvn package'"""
-# path_to_folder : the path where pom.xml locates
+"""Execute Maven with argument lists so project paths are never shell code."""
 import os
 import subprocess
 
-from constants import TREE_DIR
+import constants
 
 
-# create a folder
-def create_folder(folder_path:str):
-    # Check if the folder already exists
-    if os.path.exists(folder_path):
-        return
-    # Create the new folder
-    os.makedirs(folder_path)
-    
-def mvn_package(path_to_folder:str, relative_path_to_module:str):
-    """execute \"mvn package\""""
-    # firstly, execute mvn package in module folder
-    if relative_path_to_module == '.':
-        command = f"cd {path_to_folder} && mvn -Dmaven.test.skip=true -Dcheckstyle.skip=true clean package"
-    else :
-        command = f"cd {os.path.join(path_to_folder, relative_path_to_module)} && mvn -Dmaven.test.skip=true -Dcheckstyle.skip=true clean package"
-    print("mvn clean and mvn package...")
-    exit_status = os.system(command)
-    if exit_status != 0 and relative_path_to_module != '.':
-        # mvn package is unexecutable in module folder, so execute it in root with the help of -pl -am
-        command = f"cd {path_to_folder} && mvn -Dmaven.test.skip=true -Dcheckstyle.skip=true -pl {relative_path_to_module} -am clean package "
-        exit_status = os.system(command)
-    if exit_status != 0:
-        # mvn package is unexecutable with -pl -am, so execute it in root without -pl -am
-        command = f"cd {path_to_folder} && mvn -Dmaven.test.skip=true -Dcheckstyle.skip=true clean package"
-        exit_status = os.system(command)
-    return exit_status
+def create_folder(folder_path):
+    os.makedirs(folder_path, exist_ok=True)
 
-def mvn_test(path_to_folder:str, relative_path_to_module:str):
-    """execute mvn test"""
-    # firstly, execute mvn test in module folder
-    if relative_path_to_module == '.':
-        command = f"cd {path_to_folder} && mvn -Dcheckstyle.skip=true -Denforcer.skip=true -Dflatten.skip=true test"
-    else :
-        command = f"cd {os.path.join(path_to_folder, relative_path_to_module)} && \
-            mvn -Dcheckstyle.skip=true \
-            -Denforcer.skip=true -Dflatten.skip=true test" 
-    print("mvn test...")
-    exit_status = os.system(command)
-    if exit_status != 0 and relative_path_to_module != '.':
-        # mvn test is unexecutable in module folder, so execute it in root with the help of -pl -am
-        command = f"cd {path_to_folder} && mvn -Dcheckstyle.skip=true -Denforcer.skip=true -Dflatten.skip=true -pl {relative_path_to_module} -am test"
-        exit_status = os.system(command)
-    if exit_status != 0:
-        # mvn test is unexecutable with -pl -am, so execute it in root without -pl -am
-        command = f"cd {path_to_folder} && mvn -Dcheckstyle.skip=true -Denforcer.skip=true -Dflatten.skip=true test"
-        exit_status = os.system(command)
-    return exit_status
 
-def mvn_verbose_dependency_tree(path_to_folder:str, relative_path_to_module:str):
-    """execute mvn dependency:tree -Dverbose"""
-    command = f"cd {path_to_folder} && mvn dependency:tree -pl {relative_path_to_module} -am -Dverbose -fae"
-    print("generating dependency tree...")
-    result = subprocess.run(command, shell=True, text=True, capture_output=True)
+def _build(path_to_folder, module, flags, goals):
+    module_dir = os.path.join(path_to_folder, module)
+    result = subprocess.run(['mvn', *flags, *goals], cwd=module_dir)
+    if result.returncode and module != '.':
+        result = subprocess.run(['mvn', *flags, '-pl', module, '-am', *goals], cwd=path_to_folder)
+    if result.returncode:
+        result = subprocess.run(['mvn', *flags, *goals], cwd=path_to_folder)
+    return result.returncode
+
+
+def mvn_package(path_to_folder, relative_path_to_module):
+    return _build(path_to_folder, relative_path_to_module,
+                  ['-Dmaven.test.skip=true', '-Dcheckstyle.skip=true'], ['clean', 'package'])
+
+
+def mvn_test(path_to_folder, relative_path_to_module):
+    return _build(path_to_folder, relative_path_to_module,
+                  ['-Dcheckstyle.skip=true', '-Denforcer.skip=true', '-Dflatten.skip=true'], ['test'])
+
+
+def mvn_verbose_dependency_tree(path_to_folder, relative_path_to_module):
+    result = subprocess.run(['mvn', 'dependency:tree', '-pl', relative_path_to_module,
+                             '-am', '-Dverbose', '-fae'], cwd=path_to_folder,
+                            text=True, capture_output=True)
     repo_name = os.path.basename(path_to_folder)
-    if relative_path_to_module == '.':
-        tree_folder = os.path.join(TREE_DIR, f'{repo_name}', '_')
-    else:
-        tree_folder = os.path.join(TREE_DIR, f'{repo_name}', f'{relative_path_to_module}')
+    tree_folder = os.path.join(constants.TREE_DIR, repo_name,
+                               '_' if relative_path_to_module == '.' else relative_path_to_module)
     create_folder(tree_folder)
     tree_file = os.path.join(tree_folder, 'verbose_tree.txt')
-    with open(tree_file, 'w', encoding='utf-8') as f:
-        f.write(f'{result.stdout}')
-        
-    # print(f"{result.stdout}")
-
-    print("dependency tree is generated successfully")
+    with open(tree_file, 'w', encoding='utf-8') as stream:
+        stream.write(result.stdout)
+    with open(os.path.join(tree_folder, 'stderr.txt'), 'w', encoding='utf-8') as stream:
+        stream.write(result.stderr)
     return tree_file, result.returncode

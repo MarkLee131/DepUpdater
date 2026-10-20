@@ -8,7 +8,7 @@ import time
 from lxml import etree
 from tqdm import tqdm
 
-from constants import VALIDATION_LOG_DIR
+import constants
 from computation.japicmp import Japicmp
 from computation.computation import Computation
 from preprocess.Restore import Restore
@@ -38,9 +38,9 @@ class Validation:
             path_to_backed_up_pom (str): the path to the backed up pom.xml
             path_to_pom (str): the path to the pom.xml
         """
-        with open(path_to_pom, 'r', encoding='utf-8') as f:
+        with open(path_to_pom, 'rb') as f:
             content = f.read()
-        with open(path_to_backed_up_pom, 'w', encoding='utf-8') as f:
+        with open(path_to_backed_up_pom, 'wb') as f:
             f.write(content)
 
     @staticmethod
@@ -52,16 +52,17 @@ class Validation:
             path_to_pom (str): the path to the pom.xml
             path_to_validation_pom (str): the path to the pom.xml which is used for validation
         """
-        # record the pom.xml after validation
-        with open(path_to_pom, 'r', encoding='utf-8') as f:
-            content = f.read()
-        with open(path_to_validation_pom, 'w', encoding='utf-8') as f:
-            f.write(content)
-        # restore the original pom.xml
-        with open(path_to_backed_up_pom, 'r', encoding='utf-8') as f:
-            content = f.read()
-        with open(path_to_pom, 'w', encoding='utf-8') as f:
-            f.write(content)
+        try:
+            with open(path_to_pom, 'rb') as f:
+                content = f.read()
+            with open(path_to_validation_pom, 'wb') as f:
+                f.write(content)
+        finally:
+            # Restore even if preserving the candidate fails.
+            with open(path_to_backed_up_pom, 'rb') as f:
+                content = f.read()
+            with open(path_to_pom, 'wb') as f:
+                f.write(content)
 
     def get_actual_best_version(self, group_id: str, artifact_id: str, versions: list, method_entry_points: dict, \
         type_entry_points:dict, direct_or_transitive:str)->str:
@@ -241,7 +242,7 @@ class Validation:
         ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
 
         # Check if dependency exists and create/update as necessary
-        dependencies = root.find('.//m:dependencies', namespaces=ns)
+        dependencies = root.find('m:dependencies', namespaces=ns)
         if dependencies is None:
             dependencies = etree.SubElement(root, '{http://maven.apache.org/POM/4.0.0}dependencies')
 
@@ -289,7 +290,7 @@ class Validation:
         ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
         
         # Check if dependency exists and create/update as necessary
-        dependencyManagement = root.find('.//m:dependencyManagement', namespaces=ns)
+        dependencyManagement = root.find('m:dependencyManagement', namespaces=ns)
         if dependencyManagement is None:
             dependencyManagement = etree.SubElement(root, '{http://maven.apache.org/POM/4.0.0}dependencyManagement')
             
@@ -339,7 +340,7 @@ class Validation:
 
         property_tag_name = f'{group_id}_{artifact_id}_version'
         # add {group_id}_{artifact_id}_version into the properties
-        properties = root.find('.//m:properties', namespaces=ns)
+        properties = root.find('m:properties', namespaces=ns)
         if properties is None:
             properties = etree.SubElement(root, '{http://maven.apache.org/POM/4.0.0}properties')
         property_tag = properties.find(f'm:{property_tag_name}', namespaces=ns)
@@ -362,7 +363,7 @@ class Validation:
             log_type (str): the type of the log, 'recompile' or 'binary_bc_api'
         """
         # create the folder to store the log
-        log_folder = os.path.join(VALIDATION_LOG_DIR, self.repo_name, self.relative_path_to_module, group_id, artifact_id, version)
+        log_folder = os.path.join(constants.VALIDATION_LOG_DIR, self.repo_name, self.relative_path_to_module, group_id, artifact_id, version)
         if not os.path.exists(log_folder):
             os.makedirs(log_folder)
         # store the log

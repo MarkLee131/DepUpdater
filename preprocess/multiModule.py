@@ -26,8 +26,8 @@ def get_gav(module_path:str, root_dir:str):
         inform (dict): {g:a:v --> relative module_path}
     """
     # generate effective-pom
-    command = f"cd {module_path} && mvn help:effective-pom -Doutput=effective-pom.xml"
-    result = subprocess.run(command, shell=True, text=True, capture_output=True)
+    subprocess.run(['mvn', 'help:effective-pom', '-Doutput=effective-pom.xml'],
+                   cwd=module_path, check=True, text=True, capture_output=True)
     effective_pom_path = os.path.join(module_path, 'effective-pom.xml')
 
     # # debug

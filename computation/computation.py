@@ -5,7 +5,8 @@ import csv
 
 from tqdm import tqdm
 import pymaven
-from constants import REACHABLE_API_DIR, DOWNLOAD_ERROR_CSV
+import constants
+from constants import DOWNLOAD_ERROR_CSV
 from computation.versions import get_candidate_versions
 from computation.api import Api
 from computation.revapi import Revapi
@@ -546,7 +547,7 @@ class Computation:
             reachable_apis (set) : A set of (caller,callee) tuples\n
             apis_type (str) : 'methods' or 'types'
         """
-        module_folder = os.path.join(REACHABLE_API_DIR, self.repo_name, self.relative_path_to_module, f'{self.cur_node["GroupId"]}', f'{self.cur_node["ArtifactId"]}')
+        module_folder = os.path.join(constants.REACHABLE_API_DIR, self.repo_name, self.relative_path_to_module, f'{self.cur_node["GroupId"]}', f'{self.cur_node["ArtifactId"]}')
         self.create_folder(module_folder)
         if apis_type == 'methods':
             module_file = os.path.join(module_folder, 'methods.txt')
@@ -567,7 +568,7 @@ class Computation:
             reachable_apis : A dictionary of caller -> callees relations tuple\n
             key: caller, value: a set of the corresponding callees\n
         """
-        module_folder = os.path.join(REACHABLE_API_DIR, self.repo_name, self.relative_path_to_module, group_id, artifact_id)
+        module_folder = os.path.join(constants.REACHABLE_API_DIR, self.repo_name, self.relative_path_to_module, group_id, artifact_id)
         if apis_type == 'methods':
             module_file = os.path.join(module_folder, 'methods.txt')
         elif apis_type == 'types':

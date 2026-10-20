@@ -1,6 +1,9 @@
 """get and sort all versions of a dependency"""
 import time
-from functools import cmp_to_key
+import os
+from pathlib import Path
+from functools import cmp_to_key, lru_cache
+from computation.execution import run_checked, AnalysisError
 from database.query import query_versions_from_mongo
 from logger.logger import log_debug
 
@@ -73,6 +76,7 @@ def fetch_versions(groupId, artifactId):
     deprecated: use mongodb instead"""
     # Fetch all versions(up to 200) of the dependency from Maven Central
     url = f"http://search.maven.org/solrsearch/select?q=g:{groupId}+AND+a:{artifactId}&core=gav&rows=200&wt=json"
+    all_versions = []
     try:
         response = get_resource_with_retry(url)
         if response:
@@ -90,7 +94,7 @@ def fetch_versions(groupId, artifactId):
         print(f"Fail to handle {groupId}:{artifactId}, reason:{e}")
 
     # Sort versions using a custom comparison function
-    all_versions.sort(key=cmp_to_key(version_comparator))
+    all_versions = sort_versions(all_versions)
 
     # the versions in all_versions have been sorted by Maven Central
     # only return the version string
@@ -102,14 +106,56 @@ def get_versions(groupId, artifactId):
     all_versions = query_versions_from_mongo(groupId, artifactId)
 
     # Sort versions using a custom comparison function
-    all_versions.sort(key=cmp_to_key(version_comparator))
+    all_versions = sort_versions(all_versions)
 
     # the versions in all_versions have been sorted
     # only return the version string
     all_versions = [version['version'] for version in all_versions]
     return all_versions
 
+@lru_cache(maxsize=256)
+def _maven_order(versions):
+    """Sort a batch using the bundled Maven 3.6.2 ComparableVersion class."""
+    root = Path(__file__).resolve().parents[1]
+    jar = root / 'utils/revapi-0.12.0/lib/maven-artifact-3.6.2.jar'
+    helper = root / 'utils/SortVersions.java'
+    if any(not v or '\n' in v or '\r' in v for v in versions):
+        raise ValueError('Versions must be nonempty, single-line strings')
+    if not versions:
+        return ()
+    output = run_checked(['java', '--class-path', str(jar), str(helper)],
+                         input='\n'.join(versions) + '\n', timeout=60)
+    ordered = tuple(output.splitlines())
+    if sorted(ordered) != sorted(versions):
+        raise AnalysisError('Maven version sorter returned incomplete output')
+    return ordered
+
+
+def sort_versions(records, policy=None):
+    """Newest first; publication dates do not influence Maven ordering.
+
+    legacy preserves the artifact comparator for comparison only. It retains
+    its original non-transitive ordering and is not a correctness fix.
+    """
+    policy = policy or os.environ.get('DEPUPDATER_VERSION_ORDER', 'maven')
+    if policy == 'legacy':
+        return sorted(records, key=cmp_to_key(legacy_version_comparator))
+    if policy != 'maven':
+        raise ValueError(f'Unknown version order: {policy}')
+    order = _maven_order(tuple(sorted({r['version'] for r in records})))
+    rank = {version: index for index, version in enumerate(order)}
+    return sorted(records, key=lambda r: rank[r['version']])
+
+
 def version_comparator(a, b):
+    """Deterministic Maven comparison; production sorting uses one batch call."""
+    if a['version'] == b['version']:
+        return 0
+    order = _maven_order(tuple(sorted((a['version'], b['version']))))
+    return -1 if order[0] == a['version'] else 1
+
+
+def legacy_version_comparator(a, b):
     """Try to parse versions as SemVer and sort by SemVer if possible, otherwise sort by date
     arrange versions in descending order
     """

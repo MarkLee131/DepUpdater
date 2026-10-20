@@ -8,7 +8,7 @@ from computation.computation import Computation
 from computation.validation import Validation
 from update.updateDG import Update
 from logger.logger import log_debug
-from constants import VALIDATION_LOG_DIR
+import constants
 class Traverse:
     def __init__(self, json_path:str, path_to_project_folder:str, relative_path_to_module:str):
         """
@@ -54,49 +54,49 @@ class Traverse:
         pom_path = os.path.join(self.path_to_project_folder, self.relative_path_to_module, 'pom.xml')
         original_pom_path = os.path.join(self.path_to_project_folder, self.relative_path_to_module, '_original_pom.xml')
         Validation.backup_pom(original_pom_path, pom_path)
-        
-        while self.queue:
-            cur_dep = self.queue.popleft()
-            
-            # no need to compute client anymore
-            if cur_dep['Depth'] == 0:
-                continue
 
-            log_debug(f"Computing {cur_dep['GroupId']}:{cur_dep['ArtifactId']}")
+        try:
+            while self.queue:
+                cur_dep = self.queue.popleft()
 
-            if cur_dep['Count'] >= 3:
-                # print(f"Dependency {cur_dep['GroupId']}:{cur_dep['ArtifactId']} has been computed for 3 times. Something may goes wrong.")
-                log_debug(f'=== Dependency {cur_dep["GroupId"]}:{cur_dep["ArtifactId"]} has been computed for {cur_dep["Count"]} times ===')
-                # exit(1)
+                # no need to compute client anymore
+                if cur_dep['Depth'] == 0:
+                    continue
 
-            old_best_version = self.get_old_best_version(cur_dep)
+                log_debug(f"Computing {cur_dep['GroupId']}:{cur_dep['ArtifactId']}")
 
-            # find the newest compatible version of cur_dep,
-            # and return its new dependencies and old dependencies to update the graph,
-            # record the graph in version.json in real time
-            # --> new_deps = compute_newest_version(cur_dep, self.graph, self.json_path)
-            old_deps, local_dep_flag = self.compute_and_validate(cur_dep, local_dep_jar)
-            cur_dep['Count'] += 1
+                if cur_dep['Count'] >= 3:
+                    # print(f"Dependency {cur_dep['GroupId']}:{cur_dep['ArtifactId']} has been computed for 3 times. Something may goes wrong.")
+                    log_debug(f'=== Dependency {cur_dep["GroupId"]}:{cur_dep["ArtifactId"]} has been computed for {cur_dep["Count"]} times ===')
+                    # exit(1)
 
-            log_debug(f"{cur_dep['GroupId']}:{cur_dep['ArtifactId']} has been computed, best version is {cur_dep['Best_Version']}.")
-            
-            if not local_dep_flag:
-                # update the graph and queue,
+                old_best_version = self.get_old_best_version(cur_dep)
+
+                # find the newest compatible version of cur_dep,
+                # and return its new dependencies and old dependencies to update the graph,
                 # record the graph in version.json in real time
-                # --> update_graph(cur_dep, old_deps, new_deps, self.graph, self.queue, self.json_path)
-                up = Update(cur_dep, self.graph, self.queue, old_deps)
-                up.update(old_best_version)
+                # --> new_deps = compute_newest_version(cur_dep, self.graph, self.json_path)
+                old_deps, local_dep_flag = self.compute_and_validate(cur_dep, local_dep_jar)
+                cur_dep['Count'] += 1
 
-        # recompile the project
-        compile_flag = self.recompile()
-        # test the project
-        test_flag = self.test()
-        # restore the pom.xml and back up the pom.xml after computation
-        # so: after the traverse, the pom is the original one while _backed_up_pom.xml is the one after updating
-        # the _original_pom.xml is the one before updating, which is the same as the pom.xml
-        backed_up_pom_path = os.path.join(self.path_to_project_folder, self.relative_path_to_module, '_backed_up_pom.xml')
-        Validation.restore_pom(original_pom_path, pom_path, backed_up_pom_path)
-        return compile_flag, test_flag
+                log_debug(f"{cur_dep['GroupId']}:{cur_dep['ArtifactId']} has been computed, best version is {cur_dep['Best_Version']}.")
+
+                if not local_dep_flag:
+                    # update the graph and queue,
+                    # record the graph in version.json in real time
+                    # --> update_graph(cur_dep, old_deps, new_deps, self.graph, self.queue, self.json_path)
+                    up = Update(cur_dep, self.graph, self.queue, old_deps)
+                    up.update(old_best_version)
+
+            # recompile the project
+            compile_flag = self.recompile()
+            # test the project
+            test_flag = self.test()
+            return compile_flag, test_flag
+        finally:
+            # Preserve the candidate and restore even after analyzer/build failure.
+            backed_up_pom_path = os.path.join(self.path_to_project_folder, self.relative_path_to_module, '_backed_up_pom.xml')
+            Validation.restore_pom(original_pom_path, pom_path, backed_up_pom_path)
 
 
     def compute_and_validate(self, cur_dep:dict, local_dep_jar:list):
@@ -143,12 +143,12 @@ class Traverse:
         else:
             direct_or_transitive = 'transitive'
         val.validate(group_id, artifact_id, versions, best_version, method_entry_points, type_entry_points, direct_or_transitive)
-        
+
     def change_pom(self, cur_dep, best_version):
         """
             change the pom.xml to the best version of the dependency
             by set the value of the property tag in pom.xml and add the property in the corresponding tag\
-            in <dependencies> or <dependencyManagement>    
+            in <dependencies> or <dependencyManagement>
         """
         val = Validation(self.path_to_project_folder, self.relative_path_to_module)
         group_id = cur_dep['GroupId']
@@ -161,41 +161,31 @@ class Traverse:
         else:
             # transitive dependency
             val.add_transitive_dependency(group_id, artifact_id, property_tag_name)
-        
+
         # way2: set all dependencies in <dependencies>
         # val.add_direct_dependency(group_id, artifact_id, property_tag_name)
 
+    def _validate_build(self, goal):
+        flags = ['-Dcheckstyle.skip=true', '-Denforcer.skip=true',
+                 '-Dflatten.skip=true', '-Dspotless.check.skip=true']
+        if goal == 'compile':
+            flags.append('-Dmaven.test.skip=true')
+        module_dir = os.path.join(self.path_to_project_folder, self.relative_path_to_module)
+        result = subprocess.run(['mvn', *flags, goal], cwd=module_dir,
+                                text=True, capture_output=True)
+        if result.returncode != 0:
+            result = subprocess.run(['mvn', *flags, '-pl', self.relative_path_to_module,
+                                     '-am', goal], cwd=self.path_to_project_folder,
+                                    text=True, capture_output=True)
+        log = result.stdout + '\n' + result.stderr
+        if goal == 'compile':
+            self.store_compile_log(log)
+        else:
+            self.store_test_log(log)
+        return result.returncode == 0
+
     def recompile(self):
-        """recompile the project finally
-        Returns:
-            bool: whether the recompile is successful
-        """
-        print("\nRecompiling the project to validate...\n")
-        log_debug("Recompiling the project to validate...")
-        # firstly, mvn compile in module folder
-        command = f"cd {os.path.join(self.path_to_project_folder, self.relative_path_to_module)} &&\
-            mvn -Dmaven.test.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true -Dflatten.skip=true \
-                -Dspotless.check.skip=true compile"
-        try:
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            if result.returncode != 0:
-                # second, mvn compile in root folder with -pl -am
-                command = f"cd {self.path_to_project_folder} && mvn -Dmaven.test.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true \
-                    -Dflatten.skip=true -Dspotless.check.skip=true \
-                        -pl {self.relative_path_to_module} compile -am"
-                result = subprocess.run(command, shell=True, text=True, capture_output=True)
-                if result.returncode != 0:
-                    # recompile fails
-                    self.store_compile_log(result.stdout)
-                    print("Recompile failed.")
-                    log_debug("Recompile failed.")
-                    return False
-            self.store_compile_log(result.stdout)
-            return True
-        except subprocess.SubprocessError as e:
-            print(f"An error occured while execute the command: {e}")
-            log_debug(f"An error occured while execute the command: {e}")
-            return False
+        return self._validate_build('compile')
 
     def get_old_best_version(self, cur_dep):
         """get the old best version of the dependency"""
@@ -211,7 +201,7 @@ class Traverse:
     def store_compile_log(self, log:str):
         """store the compile log"""
         repo_name = os.path.basename(self.path_to_project_folder)
-        log_folder = os.path.join(VALIDATION_LOG_DIR, repo_name, self.relative_path_to_module)
+        log_folder = os.path.join(constants.VALIDATION_LOG_DIR, repo_name, self.relative_path_to_module)
         if not os.path.exists(log_folder):
             os.makedirs(log_folder)
         # store the log
@@ -220,36 +210,12 @@ class Traverse:
             f.write(log)
 
     def test(self):
-        """test the project finally"""
-        print("\nTesting the project to validate...\n")
-        # first, mvn test in module folder
-        command = f"cd {os.path.join(self.path_to_project_folder, self.relative_path_to_module)} && \
-            mvn -Dcheckstyle.skip=true -Denforcer.skip=true -Dflatten.skip=true -Dspotless.check.skip=true test"
-        try:
-            result = subprocess.run(command, shell=True, text=True, capture_output=True)
-            if result.returncode != 0:
-                # second, mvn test in root folder with -pl -am
-                command = f"cd {self.path_to_project_folder} && \
-                    mvn -Dcheckstyle.skip=true -Denforcer.skip=true -Dflatten.skip=true -Dspotless.check.skip=true\
-                        -pl {self.relative_path_to_module} -am test"
-                result = subprocess.run(command, shell=True, text=True, capture_output=True)
-                if result.returncode != 0:
-                    # test fails
-                    self.store_test_log(result.stdout)
-                    print("Test failed.")
-                    log_debug("Test failed.")
-                    return False
-            self.store_test_log(result.stdout)
-            return True
-        except subprocess.SubprocessError as e:
-            print(f"An error occured while execute the command: {e}")
-            log_debug(f"An error occured while execute the command: {e}")
-            return False
+        return self._validate_build('test')
 
     def store_test_log(self, log:str):
         """store the test log"""
         repo_name = os.path.basename(self.path_to_project_folder)
-        log_folder = os.path.join(VALIDATION_LOG_DIR, repo_name, self.relative_path_to_module)
+        log_folder = os.path.join(constants.VALIDATION_LOG_DIR, repo_name, self.relative_path_to_module)
         if not os.path.exists(log_folder):
             os.makedirs(log_folder)
         # store the log
