@@ -2,10 +2,17 @@
 
 # Theme
 theme: jekyll-theme-cayman
-title: "Minimizing Breaking Changes and Redundancy in Mitigating Technical Lag for Java Projects"
+title: "DepUpdater"
 description: "DepUpdater: Minimize technical lag as much as possible while avoiding compatibility issues and redundant dependencies"
-url: "https://ruisearch.github.io"
+url: "https://marklee131.github.io"
 baseurl: "/DepUpdater"
+repository_url: "https://github.com/MarkLee131/DepUpdater"
+personal_homepage: "https://kaixuanli-ecnu.github.io/"
+development_branch: "main"
+# Pin reproduction links independently of the branch used to publish the site.
+artifact_commit: "163cf411da6047dbacb8340602314723d88b729b"
+paper_url: "https://doi.org/10.1145/3744916.3773233"
+dataset_url: "https://zenodo.org/records/20340636"
 
 # SEO
 lang: en-US
@@ -35,3 +42,30 @@ include:
 exclude:
   - .gitignore
   - LICENSE
+  - Gemfile
+  - Gemfile.lock
+  - docs
+  - tests
+  - utils
+  - computation
+  - database
+  - evaluation
+  - logger
+  - preprocess
+  - traverse
+  - update
+  - __pycache__
+  - "*.py"
+  - "*.sqlite"
+  - "*.sqlite-*"
+  - "*.bson"
+  - "*.zip"
+  - requirements.txt
+  - docker-compose-mongodb.yml
+  - data
+  - logs
+  - sootOutput
+  - tqdm_log
+  - Exec_logs
+  - false_cases
+  - repository-open-graph-template.png

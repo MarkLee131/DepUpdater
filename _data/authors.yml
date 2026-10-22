@@ -1,0 +1,31 @@
+# Paper order. Photo provenance is recorded for maintenance, not hotlinked.
+- id: rui-lu
+  name: Rui Lu
+  initials: RL
+  homepage: https://scholar.google.com/citations?user=aJxkggIAAAAJ&hl=en
+  photo: /assets/images/authors/rui-lu.jpg
+  photo_source: "Author-supplied ruilu.jpg"
+
+- id: lyuye-zhang
+  name: Lyuye Zhang
+  homepage: https://lyuyezhang.github.io/
+  photo: /assets/images/authors/lyuye-zhang.webp
+  photo_source: "Author-supplied lyuyezhang.webp"
+
+- id: kaixuan-li
+  name: Kaixuan Li
+  homepage: https://kaixuanli-ecnu.github.io/
+  photo: /assets/images/authors/kaixuan-li.jpg
+  photo_source: "Author-supplied kaixuanli.jpg"
+
+- id: min-zhang
+  name: Min Zhang
+  homepage: https://faculty.ecnu.edu.cn/_s43/zm2/main.psp
+  photo: /assets/images/authors/min-zhang.jpg
+  photo_source: https://faculty.ecnu.edu.cn/_upload/article/images/1b/ec/342a64d54aed835795af6542f0d0/308be2fd-4971-4c76-ba70-927d615a94fa_s.jpg
+
+- id: yixiang-chen
+  name: Yixiang Chen
+  homepage: https://faculty.ecnu.edu.cn/_s43/cyx/main.psp
+  photo: /assets/images/authors/yixiang-chen.jpg
+  photo_source: https://faculty.ecnu.edu.cn/_upload/article/images/e9/fb/134a4c84440bb7637260271e6353/20060194_s.jpg

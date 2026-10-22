@@ -48,3 +48,11 @@ Exec_logs/
 
 # ignore the false_cases
 false_cases/
+
+# GitHub Pages local builds and Ruby dependencies
+_site/
+.jekyll-cache/
+.sass-cache/
+.jekyll-metadata
+.bundle/
+vendor/
