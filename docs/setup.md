@@ -25,7 +25,7 @@ for extracted snapshots, restored collections, JARs, and project working copies.
 ```text
 DepUpdater/
 ├── MainProcess.py
-├── docker-compose-mongodb.yml
+├── compose.yml
 ├── maven.bson
 ├── maven_deps.bson
 └── reusable_data.sqlite
@@ -45,7 +45,7 @@ snapshot copies for independent experiments.
 ## 2. Start MongoDB
 
 ```sh
-docker compose -f docker-compose-mongodb.yml up -d
+docker compose -f compose.yml up -d
 docker exec maven_mongodb mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'
 ```
 
@@ -53,9 +53,9 @@ If MongoDB is still starting, wait until the ping succeeds before restoring data
 For installations with the older standalone Compose command, use
 `docker-compose` instead of `docker compose`.
 
-The supplied [Compose file](../docker-compose-mongodb.yml) names the container
+The supplied [Compose file](../compose.yml) names the container
 `maven_mongodb` and publishes port `27017`. The Python connection settings are
-in [`database/constants.py`](../database/constants.py): `localhost:27017`.
+in [`depupdater/database/config.py`](../depupdater/database/config.py): `localhost:27017`.
 The image is currently `mongo:latest`, not a pinned historical environment;
 record the resolved MongoDB image/version for your runs. The supplied file does
 not declare a named data volume, so retain the snapshots for container recreation.
@@ -114,7 +114,7 @@ check the restore summaries as well. Then continue with
 
 | Symptom | What to check |
 | --- | --- |
-| Cannot connect to MongoDB | Check `docker compose -f docker-compose-mongodb.yml ps`, run the ping above, and confirm port `27017` matches `database/constants.py`. |
+| Cannot connect to MongoDB | Check `docker compose -f compose.yml ps`, run the ping above, and confirm port `27017` matches `depupdater/database/config.py`. |
 | Missing SQLite snapshot | Confirm `reusable_data.sqlite` is in the repository root, not the target project's directory or an archive subfolder. |
 | BSON path is a directory | Check that the source BSON files existed before Compose started. Correct the host paths and recreate the container mounts before restoring. |
 | Original project does not build or test | Check the console output, required JDK, Maven repositories, profiles, and project configuration. DepUpdater validates the project before considering upgrades. |

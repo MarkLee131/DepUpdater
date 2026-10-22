@@ -1,4 +1,4 @@
-"""Offline regressions for the reliability branch (no Maven/MongoDB downloads)."""
+"""Offline reliability regressions (no Maven/MongoDB downloads)."""
 from collections import deque
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
@@ -17,16 +17,16 @@ from unittest.mock import Mock, patch
 
 from lxml import etree
 
-import MainProcess
-import constants
-from computation.analysis_cache import run_cached
-from computation.api import Api
-from computation.execution import AnalysisError, AnalysisTimeout, run_checked
-from computation.revapi import Revapi
-from computation.validation import Validation
-from computation.versions import sort_versions, version_comparator
-from preprocess.workspace import copy_project
-from traverse.traverse import Traverse
+import depupdater.cli as MainProcess
+import depupdater.paths as constants
+from depupdater.analysis.cache import run_cached
+from depupdater.analysis.api import Api
+from depupdater.analysis.execution import AnalysisError, AnalysisTimeout, run_checked
+from depupdater.analysis.revapi import Revapi
+from depupdater.analysis.validation import Validation
+from depupdater.analysis.versions import sort_versions, version_comparator
+from depupdater.preprocessing.workspace import copy_project
+from depupdater.graph.traversal import Traverse
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = {'m': 'http://maven.apache.org/POM/4.0.0'}
@@ -109,7 +109,7 @@ class EntryPointTests(TemporaryCase):
     def test_import_has_no_cli_or_pipeline_side_effects(self):
         result = subprocess.run([sys.executable, '-c',
                                  "import sys; sys.argv=['tool','--invalid']; import MainProcess; "
-                                 "assert 'traverse.traverse' not in sys.modules; print('imported')"],
+                                 "assert 'depupdater.graph.traversal' not in sys.modules; print('imported')"],
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'imported')
@@ -169,7 +169,7 @@ class EntryPointTests(TemporaryCase):
         source = self.project()
         seen = []
         def run(args):
-            import preprocess.exec_maven_command as commands
+            import depupdater.preprocessing.maven as commands
             seen.append(commands.constants.TREE_DIR)
             return 0
         for number in range(2):
@@ -185,10 +185,10 @@ class EntryPointTests(TemporaryCase):
         for failed_stage in ['mvn_package', 'mvn_test', 'mvn_verbose_dependency_tree']:
             with self.subTest(stage=failed_stage), ExitStack() as stack:
                 constants.configure_run_paths(self.path / failed_stage)
-                stack.enter_context(patch('logger.logger.log_debug'))
+                stack.enter_context(patch('depupdater.log.log_debug'))
                 for name in ['mvn_package', 'mvn_test', 'mvn_verbose_dependency_tree']:
                     value = ('tree.txt', 1 if name == failed_stage else 0) if name.endswith('tree') else (1 if name == failed_stage else 0)
-                    stack.enter_context(patch('preprocess.exec_maven_command.' + name, return_value=value))
+                    stack.enter_context(patch('depupdater.preprocessing.maven.' + name, return_value=value))
                 stack.enter_context(redirect_stdout(io.StringIO()))
                 self.assertEqual(MainProcess.run_pipeline(args), 1)
 
@@ -198,23 +198,23 @@ class EntryPointTests(TemporaryCase):
         for outcome in [(False, True), (True, False), (True, True)]:
             with self.subTest(outcome=outcome), ExitStack() as stack:
                 constants.configure_run_paths(self.path / 'analysis')
-                stack.enter_context(patch('logger.logger.log_debug'))
+                stack.enter_context(patch('depupdater.log.log_debug'))
                 for name in ['mvn_package', 'mvn_test']:
-                    stack.enter_context(patch('preprocess.exec_maven_command.' + name, return_value=0))
-                stack.enter_context(patch('preprocess.exec_maven_command.mvn_verbose_dependency_tree', return_value=('tree', 0)))
-                restore = stack.enter_context(patch('preprocess.Restore.Restore'))
+                    stack.enter_context(patch('depupdater.preprocessing.maven.' + name, return_value=0))
+                stack.enter_context(patch('depupdater.preprocessing.maven.mvn_verbose_dependency_tree', return_value=('tree', 0)))
+                restore = stack.enter_context(patch('depupdater.preprocessing.restore.Restore'))
                 restore.return_value.restore.return_value = ('graph', 'original', [1], [])
-                traverse = stack.enter_context(patch('traverse.traverse.Traverse'))
+                traverse = stack.enter_context(patch('depupdater.graph.traversal.Traverse'))
                 traverse.return_value.traverse.return_value = outcome
-                lag = stack.enter_context(patch('evaluation.tech_lag.TechLag'))
+                lag = stack.enter_context(patch('depupdater.metrics.technical_lag.TechLag'))
                 lag.return_value.current_lag = [0]
-                stack.enter_context(patch('evaluation.dep_count.count_deps', return_value=1))
+                stack.enter_context(patch('depupdater.metrics.dependency_count.count_deps', return_value=1))
                 stack.enter_context(redirect_stdout(io.StringIO()))
                 self.assertEqual(MainProcess.run_pipeline(args), 0 if all(outcome) else 1)
 
     def test_maven_paths_are_arguments_not_shell_commands(self):
-        from preprocess.exec_maven_command import mvn_package
-        with patch('preprocess.exec_maven_command.subprocess.run', return_value=SimpleNamespace(returncode=0)) as run:
+        from depupdater.preprocessing.maven import mvn_package
+        with patch('depupdater.preprocessing.maven.subprocess.run', return_value=SimpleNamespace(returncode=0)) as run:
             mvn_package('/project with spaces', 'module;touch sentinel')
         self.assertEqual(run.call_args.kwargs['cwd'], '/project with spaces/module;touch sentinel')
         self.assertNotIn('shell', run.call_args.kwargs)
@@ -245,7 +245,7 @@ class AnalyzerTests(TemporaryCase):
         self.assertEqual(self.cache_count(), 0)
 
     def test_successful_empty_output_is_cached(self):
-        with patch('computation.analysis_cache.run_checked', return_value='') as run:
+        with patch('depupdater.analysis.cache.run_checked', return_value='') as run:
             for _ in range(2):
                 self.assertEqual(run_cached(['tool'], files=[], namespace='empty'), '')
         self.assertEqual(run.call_count, 1)
@@ -254,7 +254,7 @@ class AnalyzerTests(TemporaryCase):
     def test_changed_jar_invalidates_cache(self):
         jar = self.path / 'local.jar'
         jar.write_bytes(b'version one')
-        with patch('computation.analysis_cache.run_checked', return_value='result') as run:
+        with patch('depupdater.analysis.cache.run_checked', return_value='result') as run:
             run_cached(['tool'], files=[jar], namespace='jar')
             jar.write_bytes(b'version two')
             run_cached(['tool'], files=[jar], namespace='jar')
@@ -271,13 +271,13 @@ class AnalyzerTests(TemporaryCase):
 
     def test_empty_types_are_success_only_after_checked_execution(self):
         api = self.api()
-        with patch('computation.api.run_cached', return_value='') as run:
+        with patch('depupdater.analysis.api.run_cached', return_value='') as run:
             self.assertEqual(api.get_types(), (set(), True))
             run.assert_called_once()
 
     def test_type_analysis_failure_propagates_instead_of_returning_empty(self):
         api = self.api()
-        with patch('computation.api.run_cached', side_effect=AnalysisError('BCEL failed')):
+        with patch('depupdater.analysis.api.run_cached', side_effect=AnalysisError('BCEL failed')):
             with self.assertRaises(AnalysisError):
                 api.get_types()
 
@@ -305,7 +305,7 @@ class AnalyzerTests(TemporaryCase):
     def test_invalid_jar_fails_before_analyzer_execution(self):
         api = self.api()
         Path(api.jar_path).write_text('broken archive')
-        with patch('computation.api.run_cached') as run, self.assertRaises(AnalysisError):
+        with patch('depupdater.analysis.api.run_cached') as run, self.assertRaises(AnalysisError):
             api.get_types()
         run.assert_not_called()
 
@@ -322,21 +322,21 @@ class AnalyzerTests(TemporaryCase):
         script = self.path / 'rev api.sh'
         script.write_text('#!/bin/sh\necho failed >&2\nexit 9\n')
         script.chmod(0o755)
-        with patch('computation.revapi.REVAPI_SH_PATH', str(script)), \
-                patch('database.query.query_revapi_bc_api', return_value=({}, {}, {}, {})) as legacy:
+        with patch('depupdater.analysis.revapi.REVAPI_SH_PATH', str(script)), \
+                patch('depupdater.database.query.query_revapi_bc_api', return_value=({}, {}, {}, {})) as legacy:
             with self.assertRaisesRegex(AnalysisError, 'exited with 9'):
                 Revapi(str(old), str(new)).bc_api('g', 'a', '1', '2')
             legacy.assert_not_called()
         self.assertEqual(self.cache_count(), 0)
 
     def test_revapi_empty_success_yields_empty_changes(self):
-        with patch('computation.revapi.run_cached', return_value=''):
+        with patch('depupdater.analysis.revapi.run_cached', return_value=''):
             result = Revapi('old', 'new').bc_api('g', 'a', '1', '2')
         self.assertEqual(result, ({}, {}, {}, {}))
 
     def test_revapi_preserves_breaking_changes_on_success(self):
         report = 'old: class example.Removed\nnew: <none>\nBINARY: BREAKING\n\n'
-        with patch('computation.revapi.run_cached', return_value=report):
+        with patch('depupdater.analysis.revapi.run_cached', return_value=report):
             result = Revapi('old', 'new').bc_api('g', 'a', '1', '2')
         self.assertIn('example.Removed', result[1])
 
@@ -395,7 +395,7 @@ class PomTests(TemporaryCase):
         def fail(*args):
             pom.write_text('candidate')
             raise AnalysisError('failure')
-        with patch('traverse.traverse.log_debug'), patch.object(traversal, 'compute_and_validate', side_effect=fail):
+        with patch('depupdater.graph.traversal.log_debug'), patch.object(traversal, 'compute_and_validate', side_effect=fail):
             with self.assertRaises(AnalysisError):
                 traversal.traverse([])
         self.assertEqual(pom.read_bytes(), original)
@@ -412,7 +412,7 @@ class PomTests(TemporaryCase):
 
 class OutputPathTests(TemporaryCase):
     def test_download_fallback_uses_configured_directory_without_trailing_slash(self):
-        from update.download_pom import download_pom_one
+        from depupdater.database.download_pom import download_pom_one
         output = self.path / 'output with spaces'
         constants.configure_run_paths(output)
         Path(constants.POM_PATH).mkdir(parents=True)
@@ -420,8 +420,8 @@ class OutputPathTests(TemporaryCase):
         artifact = local_repo / 'example/group/a/1/a-1.pom'
         artifact.parent.mkdir(parents=True)
         artifact.write_text('<project/>')
-        with patch('update.download_pom.M2_PATH', str(local_repo) + '/'), \
-                patch('update.download_pom.subprocess.check_output', return_value=b'') as mvn, \
+        with patch('depupdater.database.download_pom.M2_PATH', str(local_repo) + '/'), \
+                patch('depupdater.database.download_pom.subprocess.check_output', return_value=b'') as mvn, \
                 redirect_stdout(io.StringIO()):
             self.assertTrue(download_pom_one('example.group|a|1'))
         self.assertEqual((Path(constants.POM_PATH) / 'a-1.pom').read_text(), '<project/>')

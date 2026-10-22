@@ -13,16 +13,16 @@ import unittest
 from unittest.mock import MagicMock, patch
 import zipfile
 
-import MainProcess
-from computation.analysis_cache import run_cached
-from computation.computation import Computation
-from computation.execution import AnalysisError
-from computation.parallel import bounded_map
-from database import query
-from database.sqlite import Sqlite
-from preprocess.download import download_jar, valid_jar
-from preprocess.Restore import Restore
-from runtime import default_workers, worker_count
+import depupdater.cli as MainProcess
+from depupdater.analysis.cache import run_cached
+from depupdater.analysis.candidates import Computation
+from depupdater.analysis.execution import AnalysisError
+from depupdater.analysis.parallel import bounded_map
+from depupdater.database import query
+from depupdater.database.sqlite import Sqlite
+from depupdater.preprocessing.download import download_jar, valid_jar
+from depupdater.preprocessing.restore import Restore
+from depupdater.runtime import default_workers, worker_count
 
 
 class TemporaryCase(unittest.TestCase):
@@ -57,9 +57,9 @@ class WorkerTests(unittest.TestCase):
         return FixtureComputation(node, [], 'project', '.', [])
 
     def test_cpu_defaults_and_task_limits(self):
-        with patch('runtime.os.cpu_count', return_value=None):
+        with patch('depupdater.runtime.os.cpu_count', return_value=None):
             self.assertEqual(default_workers(), 1)
-        with patch('runtime.os.cpu_count', return_value=128):
+        with patch('depupdater.runtime.os.cpu_count', return_value=128):
             self.assertEqual(default_workers(), 4)
         with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '60'}):
             self.assertEqual(worker_count(3), 3)
@@ -76,8 +76,8 @@ class WorkerTests(unittest.TestCase):
     def test_serial_execution_does_not_create_pool(self):
         fixture = self.fixture(['good', 'bad', 'pruned'])
         with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '1'}), \
-                patch('computation.computation.tqdm'), \
-                patch('computation.computation.concurrent.futures.ProcessPoolExecutor') as pool:
+                patch('depupdater.analysis.candidates.tqdm'), \
+                patch('depupdater.analysis.candidates.concurrent.futures.ProcessPoolExecutor') as pool:
             fixture.filter_version_by_compatibility(['good', 'bad', 'pruned'])
         pool.assert_not_called()
         self.assertEqual([v['breaking_reason'] for v in fixture.cur_node['Versions']],
@@ -87,26 +87,26 @@ class WorkerTests(unittest.TestCase):
         versions = [str(i) for i in range(15)] + ['bad', 'pruned']
         serial = self.fixture(versions)
         parallel = self.fixture(versions)
-        with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '1'}), patch('computation.computation.tqdm'):
+        with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '1'}), patch('depupdater.analysis.candidates.tqdm'):
             serial.filter_version_by_compatibility(versions)
         def spawn_pool(**kwargs):
             return ProcessPoolExecutor(mp_context=multiprocessing.get_context('spawn'), **kwargs)
         with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '2'}), \
-                patch('computation.computation.tqdm'), \
-                patch('computation.computation.concurrent.futures.ProcessPoolExecutor', side_effect=spawn_pool):
+                patch('depupdater.analysis.candidates.tqdm'), \
+                patch('depupdater.analysis.candidates.concurrent.futures.ProcessPoolExecutor', side_effect=spawn_pool):
             parallel.filter_version_by_compatibility(versions)
         self.assertEqual(serial.cur_node['Versions'], parallel.cur_node['Versions'])
         self.assertEqual(parallel.transfers, 2)
 
     def test_parallel_failure_propagates(self):
         fixture = self.fixture(['error', 'good'])
-        with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '2'}), patch('computation.computation.tqdm'):
+        with patch.dict(os.environ, {'DEPUPDATER_WORKERS': '2'}), patch('depupdater.analysis.candidates.tqdm'):
             with self.assertRaisesRegex(AnalysisError, 'fixture analysis failed'):
                 fixture.filter_version_by_compatibility(['error', 'good'])
 
     def test_pruned_only_candidates_do_not_start_pool(self):
         fixture = self.fixture(['pruned'])
-        with patch('computation.computation.concurrent.futures.ProcessPoolExecutor') as pool:
+        with patch('depupdater.analysis.candidates.concurrent.futures.ProcessPoolExecutor') as pool:
             fixture.filter_version_by_compatibility(['pruned'])
         pool.assert_not_called()
 
@@ -153,7 +153,7 @@ class DatabaseTests(TemporaryCase):
 
     def test_missing_snapshot_fails_without_creating_empty_database(self):
         path = self.path / 'missing.sqlite'
-        with patch('database.query.SQLITE_PATH', str(path)), self.assertRaises(sqlite3.OperationalError):
+        with patch('depupdater.database.query.SQLITE_PATH', str(path)), self.assertRaises(sqlite3.OperationalError):
             query.query_call_graph('g', 'a', '1')
         self.assertFalse(path.exists())
 
@@ -165,7 +165,7 @@ class DatabaseTests(TemporaryCase):
     def test_multi_write_context_rolls_back_on_failure(self):
         # Intentionally missing callGraph: the insert must roll back if the update fails.
         path = self.database('CREATE TABLE api (groupId TEXT, artifactId TEXT, version TEXT);')
-        with patch('database.query.SQLITE_PATH', str(path)), self.assertRaises(sqlite3.OperationalError):
+        with patch('depupdater.database.query.SQLITE_PATH', str(path)), self.assertRaises(sqlite3.OperationalError):
             query.store_call_graph('g', 'a', '1', 'graph')
         with sqlite3.connect(path) as db:
             self.assertEqual(db.execute('SELECT count(*) FROM api').fetchone()[0], 0)
@@ -190,7 +190,7 @@ class DatabaseTests(TemporaryCase):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 instances.append(self)
-        with patch('database.query.SQLITE_PATH', str(path)), patch('database.query.Sqlite', ObservedSqlite):
+        with patch('depupdater.database.query.SQLITE_PATH', str(path)), patch('depupdater.database.query.Sqlite', ObservedSqlite):
             self.assertEqual(query.query_revapi_bc_api('g', 'a', '1', '2'), (None,) * 4)
             self.assertIsNone(instances[-1].conn)
             with sqlite3.connect(path) as db:
@@ -200,8 +200,8 @@ class DatabaseTests(TemporaryCase):
             self.assertIsNone(instances[-1].conn)
 
     def test_sqlite_failure_is_not_hidden_as_download_failure(self):
-        with patch('preprocess.Restore.query_to_get_jar_location', side_effect=sqlite3.OperationalError('locked')), \
-                patch('preprocess.Restore.download_jar') as download:
+        with patch('depupdater.preprocessing.restore.query_to_get_jar_location', side_effect=sqlite3.OperationalError('locked')), \
+                patch('depupdater.preprocessing.restore.download_jar') as download:
             with self.assertRaises(sqlite3.OperationalError):
                 Restore.get_dep_jar('g', 'a', '1', whether_log=False)
         download.assert_not_called()
@@ -210,7 +210,7 @@ class DatabaseTests(TemporaryCase):
         client = MagicMock()
         collection = client.__getitem__.return_value.__getitem__.return_value
         collection.find.return_value = [{'dependencies': []}, {'dependencies': []}]
-        with patch('database.mongodb.pymongo.MongoClient', return_value=client):
+        with patch('depupdater.database.mongodb.pymongo.MongoClient', return_value=client):
             self.assertEqual(query.query_dependencies_from_mongo('g', 'a', '1'), [])
         collection.delete_many.assert_not_called()
         client.close.assert_called_once()
@@ -219,7 +219,7 @@ class DatabaseTests(TemporaryCase):
         client = MagicMock()
         collection = client.__getitem__.return_value.__getitem__.return_value
         collection.find.return_value = [{'dependencies': []}, {'dependencies': [{'dep': 'g:b:2'}]}]
-        with patch('database.mongodb.pymongo.MongoClient', return_value=client):
+        with patch('depupdater.database.mongodb.pymongo.MongoClient', return_value=client):
             with self.assertRaisesRegex(ValueError, 'Conflicting dependency metadata'):
                 query.query_dependencies_from_mongo('g', 'a', '1')
         collection.delete_many.assert_not_called()
@@ -228,7 +228,7 @@ class DatabaseTests(TemporaryCase):
     def test_configured_analyzer_timeout_reaches_runner(self):
         with patch.dict(os.environ, {'DEPUPDATER_ANALYZER_TIMEOUT': '7.5',
                                     'DEPUPDATER_ANALYSIS_CACHE': str(self.path / 'cache.sqlite')}), \
-                patch('computation.analysis_cache.run_checked', return_value='') as run:
+                patch('depupdater.analysis.cache.run_checked', return_value='') as run:
             run_cached(['tool'], files=[], namespace='fixture')
         self.assertEqual(run.call_args.kwargs['timeout'], 7.5)
 
@@ -262,7 +262,7 @@ class DownloadTests(TemporaryCase):
 
     def test_valid_cache_skips_network(self):
         self.destination.write_bytes(self.archive)
-        with patch('preprocess.download.requests.get') as get:
+        with patch('depupdater.preprocessing.download.requests.get') as get:
             download_jar('url', self.destination)
         get.assert_not_called()
 
@@ -272,7 +272,7 @@ class DownloadTests(TemporaryCase):
             self.assertFalse(self.destination.exists())
             yield self.archive[10:]
         response = Response(chunks())
-        with patch('preprocess.download.requests.get', return_value=response):
+        with patch('depupdater.preprocessing.download.requests.get', return_value=response):
             download_jar('url', self.destination)
         self.assertTrue(response.closed)
         self.assertEqual(self.destination.read_bytes(), self.archive)
@@ -284,7 +284,7 @@ class DownloadTests(TemporaryCase):
             yield self.archive[:10]
             raise OSError('connection interrupted')
         response = Response(chunks())
-        with patch('preprocess.download.requests.get', return_value=response), self.assertRaises(OSError):
+        with patch('depupdater.preprocessing.download.requests.get', return_value=response), self.assertRaises(OSError):
             download_jar('url', self.destination, retries=1)
         self.assertEqual(self.destination.read_bytes(), b'old corrupt archive')
         self.assertEqual(list(self.path.glob('*.part')), [])
@@ -293,8 +293,8 @@ class DownloadTests(TemporaryCase):
     def test_corrupt_response_is_retried_and_corrupt_cache_repaired(self):
         self.destination.write_bytes(b'bad cache')
         responses = [Response([b'not a jar']), Response([self.archive])]
-        with patch('preprocess.download.requests.get', side_effect=responses) as get, \
-                patch('preprocess.download.time.sleep'):
+        with patch('depupdater.preprocessing.download.requests.get', side_effect=responses) as get, \
+                patch('depupdater.preprocessing.download.time.sleep'):
             download_jar('url', self.destination, retries=2)
         self.assertEqual(get.call_count, 2)
         self.assertTrue(valid_jar(self.destination))
@@ -309,7 +309,7 @@ class DownloadTests(TemporaryCase):
             yield self.archive[10:]
         def get(*args, **kwargs):
             return Response(chunks())
-        with patch('preprocess.download.requests.get', side_effect=get), ThreadPoolExecutor(max_workers=2) as pool:
+        with patch('depupdater.preprocessing.download.requests.get', side_effect=get), ThreadPoolExecutor(max_workers=2) as pool:
             tasks = [pool.submit(download_jar, 'url', self.destination) for _ in range(2)]
             for task in tasks:
                 task.result(timeout=10)

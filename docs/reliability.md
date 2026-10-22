@@ -19,7 +19,7 @@ absolute external paths still require project-specific configuration; this is
 workspace isolation, not an operating-system sandbox.
 
 ```shell
-python MainProcess.py -r /path/to/project -m module-a --output /path/to/new-run
+python -m depupdater -r /path/to/project -m module-a --output /path/to/new-run
 ```
 
 ## Resource controls
@@ -37,7 +37,7 @@ successful cached analysis. Active tasks finish or hit their own timeout before
 an executor shuts down after a failure; queued tasks are cancelled.
 
 ```shell
-python MainProcess.py -r /path/to/project -m module-a --workers 2 --analyzer-timeout 600
+python -m depupdater -r /path/to/project -m module-a --workers 2 --analyzer-timeout 600
 ```
 
 ## Outputs and exit codes
@@ -65,7 +65,7 @@ analysis/build/test failures return `1`; successful runs return `0`.
 
 Version ordering defaults to Maven's `ComparableVersion`, using the pinned
 `maven-artifact-3.6.2.jar` already bundled with Revapi and the source helper
-`utils/SortVersions.java`. The JDK runs this helper directly; no extra download
+`tools/java/SortVersions.java`. The JDK runs this helper directly; no extra download
 is needed. Maven-equivalent spellings use lexical order as a deterministic tie
 breaker. Publication timestamps do not influence this order. Technical lag
 continues to count positions in the filtered candidate-version list, so changing

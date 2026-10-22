@@ -11,21 +11,21 @@ remains pinned for reproducibility.
 
 | Study | File | Contents |
 | --- | --- | --- |
-| RQ1 | [RQ1_DepUpdater.csv](../RQs_data/RQ1/RQ1_DepUpdater.csv) | DepUpdater results. |
-| RQ1 | [RQ1_Dependabot.csv](../RQs_data/RQ1/RQ1_Dependabot.csv) | Dependabot results. |
-| RQ1 | [RQ1_Snyk.csv](../RQs_data/RQ1/RQ1_Snyk.csv) | Snyk results. |
-| RQ2 | [RQ2_Compatibility_Only.csv](../RQs_data/RQ2/RQ2_Compatibility_Only.csv) | Compatibility-only variant. |
-| RQ2 | [RQ2_Pruning_Only.csv](../RQs_data/RQ2/RQ2_Pruning_Only.csv) | Pruning-only variant. |
-| RQ2 | [RQ2_Naive.csv](../RQs_data/RQ2/RQ2_Naive.csv) | Naive variant. |
-| RQ3 | [RQ3_API_Distribution.csv](../RQs_data/RQ3/RQ3_API_Distribution.csv) | Distribution of client-impacting APIs. |
-| RQ3 | [RQ3_Client_Distribution.csv](../RQs_data/RQ3/RQ3_Client_Distribution.csv) | Distribution of broken clients. |
+| RQ1 | [depupdater.csv](../research/results/rq1/depupdater.csv) | DepUpdater results. |
+| RQ1 | [dependabot.csv](../research/results/rq1/dependabot.csv) | Dependabot results. |
+| RQ1 | [snyk.csv](../research/results/rq1/snyk.csv) | Snyk results. |
+| RQ2 | [compatibility_only.csv](../research/results/rq2/compatibility_only.csv) | Compatibility-only variant. |
+| RQ2 | [pruning_only.csv](../research/results/rq2/pruning_only.csv) | Pruning-only variant. |
+| RQ2 | [naive.csv](../research/results/rq2/naive.csv) | Naive variant. |
+| RQ3 | [api_distribution.csv](../research/results/rq3/api_distribution.csv) | Distribution of client-impacting APIs. |
+| RQ3 | [client_distribution.csv](../research/results/rq3/client_distribution.csv) | Distribution of broken clients. |
 
 ## Project-level results
 
 The following table was provided during the paper's major revision to make
 project-level outcomes available:
 
-![Project-level comparison of dependency upgrade results from the published artifact.](../img/RQ1_Extend_Table.png)
+![Project-level comparison of dependency upgrade results from the published artifact.](../assets/images/paper/rq1-project-results.png)
 
 Interpretation notes from the artifact:
 

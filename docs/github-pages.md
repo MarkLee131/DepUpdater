@@ -109,7 +109,8 @@ after each publication.
 
 The Jekyll exclusions prevent analyzer binaries, database snapshots, generated
 analysis output, and Python implementation directories from being copied into
-the website. Experiment CSVs and the original figures remain available.
+the website. Published result CSVs remain accessible through the pinned GitHub links; paper
+figures are served from `assets/images/paper/`.
 
 ## Author portraits
 
@@ -133,7 +134,7 @@ homepage is unavailable.
 ## Social preview
 
 `assets/images/social-preview.png` is the 1280 × 640 PNG used by the homepage's
-Open Graph metadata. Its editable source is `docs/social-preview.html`; render
+Open Graph metadata. Its editable source is `docs/design/social-preview.html`; render
 at a 1280 × 640 viewport with device scale 1 after the local Inter font loads.
 All content stays inside an 80 px margin, and the PNG is under 1 MB.
 

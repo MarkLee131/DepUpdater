@@ -75,7 +75,7 @@ image:
       <details class="disclosure">
         <summary>View the full workflow from the paper <span class="disclosure-icon" aria-hidden="true">+</span></summary>
         <figure class="paper-figure">
-          <a href="{{ '/img/overview.png' | relative_url }}" aria-label="Open the full-size DepUpdater workflow image"><img src="{{ '/img/overview.png' | relative_url }}" alt="DepUpdater restores and traverses a Maven dependency graph, filters candidate versions by pruning and client compatibility, then performs backward updates." width="2521" height="793" loading="lazy"></a>
+          <a href="{{ '/assets/images/paper/workflow.png' | relative_url }}" aria-label="Open the full-size DepUpdater workflow image"><img src="{{ '/assets/images/paper/workflow.png' | relative_url }}" alt="DepUpdater restores and traverses a Maven dependency graph, filters candidate versions by pruning and client compatibility, then performs backward updates." width="2521" height="793" loading="lazy"></a>
         </figure>
       </details>
     </section>
@@ -137,7 +137,7 @@ image:
           <div class="disclosure-body">
             <p>Complete the <a href="{{ site.repository_url }}/blob/{{ site.development_branch }}/README.md#requirements">environment and database setup</a>, then run from the DepUpdater directory with your project paths.</p>
             <div class="code-toolbar"><span>Analysis command</span><div class="copy-controls"><span class="copy-status" role="status" aria-live="polite"></span><button class="copy-button" type="button" data-copy="run-command" hidden>Copy command</button></div></div>
-            <pre><code id="run-command">python MainProcess.py \
+            <pre><code id="run-command">python -m depupdater \
   --root /path/to/project \
   --module module-a \
   --output /path/to/new-run \

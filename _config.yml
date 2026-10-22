@@ -46,14 +46,9 @@ exclude:
   - Gemfile.lock
   - docs
   - tests
-  - utils
-  - computation
-  - database
-  - evaluation
-  - logger
-  - preprocess
-  - traverse
-  - update
+  - depupdater
+  - tools
+  - research
   - __pycache__
   - "*.py"
   - "*.sqlite"
@@ -61,11 +56,10 @@ exclude:
   - "*.bson"
   - "*.zip"
   - requirements.txt
-  - docker-compose-mongodb.yml
+  - compose.yml
   - data
   - logs
   - sootOutput
   - tqdm_log
   - Exec_logs
   - false_cases
-  - repository-open-graph-template.png

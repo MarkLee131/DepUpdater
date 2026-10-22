@@ -50,7 +50,7 @@ complete reproduction of the published artifact**.
 <details>
 <summary>View the workflow from the paper</summary>
 
-![DepUpdater restores and traverses a dependency graph, filters upgrade candidates, and propagates selected updates.](img/overview.png)
+![DepUpdater restores and traverses a dependency graph, filters upgrade candidates, and propagates selected updates.](assets/images/paper/workflow.png)
 
 </details>
 
@@ -68,7 +68,7 @@ complete reproduction of the published artifact**.
 
 The target project must contain a root `pom.xml` and a `pom.xml` in the selected
 module. Its dependencies must be resolvable with your Maven configuration.
-Bundled Java analyzers are in [`utils/`](utils/).
+Bundled Java analyzers are in [`tools/analyzers/`](tools/analyzers/).
 
 ### 1. Install the tool
 
@@ -95,7 +95,7 @@ Python packages alone is not sufficient.
 Run from the DepUpdater directory, with the virtual environment activated:
 
 ```sh
-python MainProcess.py \
+python -m depupdater \
   --root /path/to/project \
   --module module-a \
   --output /path/to/new-run
@@ -109,7 +109,7 @@ untracked files, and retains that copy for inspection.
 For example, for a local checkout of [mall](https://github.com/macrozheng/mall):
 
 ```sh
-python MainProcess.py --root /path/to/mall --module mall-common
+python -m depupdater --root /path/to/mall --module mall-common
 ```
 
 Without `--output`, the CLI creates and prints a temporary run directory and
@@ -117,7 +117,8 @@ keeps it after the run.
 
 ### CLI options
 
-Use `python MainProcess.py --help` for the executable reference.
+Use `python -m depupdater --help` for the executable reference. Existing
+`python MainProcess.py ...` commands remain supported through a thin launcher.
 
 | Option | Meaning and default |
 | --- | --- |
@@ -175,9 +176,9 @@ For setup failures, start with [troubleshooting](docs/setup.md#troubleshooting).
 
 | Research question | Data |
 | --- | --- |
-| **RQ1 — Tool comparison** | [DepUpdater, Dependabot, and Snyk results](RQs_data/RQ1/) |
-| **RQ2 — Ablation study** | [Compatibility-only, pruning-only, and naive variants](RQs_data/RQ2/) |
-| **RQ3 — Transitive upgrade impact** | [Client-impacting API and broken-client distributions](RQs_data/RQ3/) |
+| **RQ1 — Tool comparison** | [DepUpdater, Dependabot, and Snyk results](research/results/rq1/) |
+| **RQ2 — Ablation study** | [Compatibility-only, pruning-only, and naive variants](research/results/rq2/) |
+| **RQ3 — Transitive upgrade impact** | [Client-impacting API and broken-client distributions](research/results/rq3/) |
 
 <a id="for-major-revision"></a>
 <a id="pull-requests-to-upgrade-dependencies"></a>
@@ -201,12 +202,16 @@ snapshots, and does not replace the published experiment reproduction.
 
 | Path | Purpose |
 | --- | --- |
-| [`MainProcess.py`](MainProcess.py), [`runtime.py`](runtime.py) | CLI, run lifecycle, and resource limits. |
-| [`preprocess/`](preprocess/), [`traverse/`](traverse/) | Working-copy preparation, dependency graphs, and traversal. |
-| [`computation/`](computation/) | Compatibility analysis, candidate selection, caching, and POM validation. |
-| [`database/`](database/), [`update/`](update/) | Metadata queries and dependency-graph/database updates. |
-| [`evaluation/`](evaluation/), [`tests/`](tests/) | Technical-lag/dependency metrics and regression tests. |
-| [`index.html`](index.html), [`assets/`](assets/) | GitHub Pages homepage; see the [website maintenance guide](docs/github-pages.md). |
+| [`depupdater/`](depupdater/) | Python package: CLI, analysis, graph updates, preprocessing, storage, and metrics. |
+| [`MainProcess.py`](MainProcess.py) | Compatibility launcher for existing commands. |
+| [`tools/analyzers/`](tools/analyzers/), [`tools/java/`](tools/java/) | Bundled analyzer distributions and the Maven version-ordering helper. |
+| [`tests/`](tests/) | Offline regression tests. |
+| [`research/`](research/) | Published result CSVs and historical baseline scripts. |
+| [`docs/`](docs/) | Setup, reliability, research, architecture, and website guides. |
+| [`index.html`](index.html), [`assets/`](assets/), [`_data/`](_data/) | GitHub Pages structure, static assets, and author metadata. |
+
+See the [repository layout and migration guide](docs/architecture.md) for module
+names and resource locations.
 
 For bug reports, include the command, tool commit, Java/Maven/Python versions,
 exit code, and relevant logs from the run directory. Open an
